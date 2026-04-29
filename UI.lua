@@ -229,11 +229,6 @@ function UI:Create()
     tabSep:SetPoint("BOTTOMRIGHT", tabBarOverlay, "BOTTOMRIGHT", 0, 0)
     tabSep:SetHeight(1)
 
-    -- Close button on the tab bar
-    local closeBtn = CreateFrame("Button", nil, tabBarOverlay, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", tabBarOverlay, "TOPRIGHT", -2, 1)
-    closeBtn:SetSize(24, 24)
-
     -- ---- Tab buttons (children of tabBarOverlay for Z-order) ----
     frame.tabs = {}
 
@@ -296,6 +291,12 @@ function UI:Create()
     historyTab.text = historyText
 
     frame.tabs.history = historyTab
+
+    -- Close button (child of frame, NOT tabBarOverlay, so Hide() closes everything).
+    -- Created AFTER tabs for correct Z-order on top.
+    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, 1)
+    closeBtn:SetSize(24, 24)
 
     -- ---- Dragging the frame ----
     frame:EnableMouse(true)
