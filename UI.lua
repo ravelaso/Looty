@@ -10,9 +10,6 @@ local UI = {}
 LootyUI = UI
 
 -- Constants
-local ROW_HEIGHT = 24
-local ROLL_ROW_HEIGHT = 18
-local SECTION_HEADER_HEIGHT = 16
 local TAB_BAR_HEIGHT = 24
 local MIN_WIDTH = 350
 local MIN_HEIGHT = 150
@@ -409,7 +406,7 @@ function UI:SwitchTab(tab)
     UI:Refresh()
 end
 
--- ---- Build a single active roll panel ----
+-- ---- Build a single active roll panel (compact layout) ----
 
 local function BuildActivePanel(content, rollData, yOffset)
     local panel = CreateFrame("Frame", nil, content)
@@ -426,24 +423,20 @@ local function BuildActivePanel(content, rollData, yOffset)
     panelBorderTop:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
     panelBorderTop:SetHeight(1)
 
-    local y = -PANEL_PADDING
-
-    -- -- Item header row: icon + name + count
+    local qColor = QUALITY_COLORS[rollData.quality] or QUALITY_COLORS[2]
     local headerH = ICON_SIZE - 4
+    local lineH = 14 -- height per roll type row
 
-    -- Item icon
+    -- -- Item header: icon + name + count
     local icon = panel:CreateTexture(nil, "ARTWORK")
     icon:SetSize(headerH, headerH)
     icon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
     icon:SetTexture(rollData.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-    -- Colored border around icon (quality color)
-    local qColor = QUALITY_COLORS[rollData.quality] or QUALITY_COLORS[2]
     local iconBorder = ColorTexture(panel, "BORDER", qColor.r, qColor.g, qColor.b, 0.6)
     iconBorder:SetSize(headerH + 2, headerH + 2)
     iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 
-    -- Item name
     local name = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
@@ -451,12 +444,12 @@ local function BuildActivePanel(content, rollData, yOffset)
     name:SetWordWrap(true)
     local displayName = rollData.name
     if rollData.count and rollData.count > 1 then
-        displayName = displayName .. " (" .. rollData.count .. ")"
+        displayName = displayName .. " (x" .. rollData.count .. ")"
     end
     name:SetText(displayName)
     name:SetTextColor(qColor.r, qColor.g, qColor.b)
 
-    -- -- Timer bar row (hidden for completed rolls)
+    -- -- Timer bar (or winner banner if completed)
     local timerRowY = -PANEL_PADDING - headerH - 6
     local timerBarH = 3
 
@@ -473,60 +466,61 @@ local function BuildActivePanel(content, rollData, yOffset)
     timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, timerRowY - 2)
     timerText:SetJustifyH("RIGHT")
 
+    local winnerPlayer, winValue, winType = DetermineWinner(rollData.rolls)
+
     if rollData.completed then
-        -- Completed: hide timer, show winner
         timerBg:Hide()
         timerBar:Hide()
         timerText:Hide()
-        local mins = math.floor(rollData.duration / 60)
-        local secs = math.floor(rollData.duration % 60)
-        timerText:SetText(string.format("DONE %d:%02d", mins, secs))
-        timerText:SetTextColor(0.5, 0.5, 0.5)
-        timerText:Show()
-
-        -- Winner banner
-        local winPlayer, winValue, winType = DetermineWinner(rollData.rolls)
-        if winPlayer then
-            local winLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            winLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING + 2, timerRowY - 1)
-            local winTypeLabel = L.ROLL_LABELS[winType] or winType
-            winLabel:SetText("Winner: " .. winPlayer .. " (" .. winTypeLabel .. ": " .. winValue .. ")")
-            winLabel:SetTextColor(0.3, 1.0, 0.3)
-        end
     else
         local mins = math.floor(rollData.duration / 60)
         local secs = math.floor(rollData.duration % 60)
         timerText:SetText(string.format("%d:%02d", mins, secs))
     end
 
-    -- -- Roll icon row: icon + count + player names
-    local rollIconRowY = timerRowY - timerBarH - 6
+    -- -- Winner banner + Roll rows
+    local rollY = timerRowY - timerBarH - 6
 
-    -- Collect counts and player names per type
-    local rollDataByType = { need = {}, greed = {}, disenchant = {}, pass = {} }
+    if winnerPlayer then
+        local winTypeLabel = L.ROLL_LABELS[winType] or winType
+        local winText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        winText:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        winText:SetText(">> Winner: " .. winnerPlayer .. " (" .. winTypeLabel .. ": " .. winValue .. ")")
+        winText:SetTextColor(0.3, 1.0, 0.3)
+        rollY = rollY - lineH - 2
+    end
+
+    local rollsByType = { need = {}, greed = {}, disenchant = {}, pass = {} }
     for playerName, rollInfo in pairs(rollData.rolls) do
         local rType = GetRollInfo(rollInfo)
-        if rollDataByType[rType] then
-            table.insert(rollDataByType[rType], playerName)
+        if rollsByType[rType] then
+            table.insert(rollsByType[rType], { name = playerName, value = type(rollInfo) == "table" and rollInfo.value or nil })
         end
     end
+    -- Sort: by value desc (highest first), then name
     for _, rt in ipairs(ROLL_SECTIONS) do
-        table.sort(rollDataByType[rt])
+        table.sort(rollsByType[rt], function(a, b)
+            local va = a.value or -1
+            local vb = b.value or -1
+            if va ~= vb then return va > vb end
+            return a.name < b.name
+        end)
     end
 
-    local rollIconY = rollIconRowY
     for _, rt in ipairs(ROLL_SECTIONS) do
-        local players = rollDataByType[rt]
-        if #players > 0 then
+        local entries = rollsByType[rt]
+        if #entries > 0 then
             -- Icon
             local rIcon = panel:CreateTexture(nil, "ARTWORK")
             rIcon:SetSize(ROLL_ICON_SIZE, ROLL_ICON_SIZE)
-            rIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollIconY)
+            rIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
             rIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
 
-            -- Label: "Need (3): PlayerA, PlayerB, PlayerC"
-            local nameStr = table.concat(players, ", ")
-            local displayStr = string.format("%s (%d): %s", L.ROLL_LABELS[rt] or rt, #players, nameStr)
+            -- Build player list: "PlayerA(87), PlayerB(42)"
+            local parts = {}
+            for _, entry in ipairs(entries) do
+                parts[#parts + 1] = entry.value and (entry.name .. "(" .. entry.value .. ")") or entry.name
+            end
 
             local secColor = rt == "need" and { 1.0, 0.35, 0.35 } or
                              rt == "greed" and { 1.0, 0.85, 0.2 } or
@@ -538,77 +532,24 @@ local function BuildActivePanel(content, rollData, yOffset)
             rText:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
             rText:SetJustifyH("LEFT")
             rText:SetWordWrap(true)
-            rText:SetText(displayStr)
+            rText:SetText(table.concat(parts, ", "))
             rText:SetTextColor(secColor[1], secColor[2], secColor[3])
 
-            -- Calculate height needed for word-wrapped text
-            local lineHeight = 10
-            local maxCharsPerLine = math.floor((panel:GetWidth() - PANEL_PADDING * 2 - ROLL_ICON_SIZE - 2) / 5)
-            local lineCount = math.max(1, math.ceil(#displayStr / maxCharsPerLine))
-            rollIconY = rollIconY - (lineCount * lineHeight + 2)
+            -- Calculate height for word-wrap
+            local maxCharsPerLine = math.max(1, math.floor((panel:GetWidth() - PANEL_PADDING * 2 - ROLL_ICON_SIZE - 2) / 5))
+            local textStr = table.concat(parts, ", ")
+            local lineCount = math.max(1, math.ceil(#textStr / maxCharsPerLine))
+            rollY = rollY - (lineCount * lineH + 2)
         end
     end
 
-    -- -- Roll sections (expanded detail)
-    local sectionY = rollIconY - 4
-
-    for _, sectionType in ipairs(ROLL_SECTIONS) do
-        local players = {}
-        for playerName, rollInfo in pairs(rollData.rolls) do
-            local rType = GetRollInfo(rollInfo)
-            if rType == sectionType then
-                table.insert(players, playerName)
-            end
-        end
-        table.sort(players)
-
-        if #players > 0 then
-            -- Section header
-            local secColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
-                             sectionType == "greed" and { 1.0, 0.85, 0.2 } or
-                             sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
-                             { 0.5, 0.5, 0.5 }
-
-            local secHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            secHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, sectionY)
-            secHeader:SetText(L.ROLL_LABELS[sectionType] or sectionType)
-            secHeader:SetTextColor(secColor[1], secColor[2], secColor[3])
-
-            -- Dashed separator line
-            local dash = ColorTexture(panel, "BORDER", secColor[1], secColor[2], secColor[3], 0.1)
-            dash:SetHeight(1)
-            dash:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING + 55, sectionY - 5)
-            dash:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, sectionY - 5)
-
-            sectionY = sectionY - SECTION_HEADER_HEIGHT
-
-            -- Player rows with roll values
-            for _, playerName in ipairs(players) do
-                local rollInfo = rollData.rolls[playerName]
-                local _, rValue = GetRollInfo(rollInfo)
-                local displayText = rValue and (playerName .. ": " .. rValue) or playerName
-
-                local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                pName:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING + 8, sectionY)
-                pName:SetText(displayText)
-                -- Highlight the winner in green
-                local winnerPlayer, _, _ = DetermineWinner(rollData.rolls)
-                if rollData.completed and playerName == winnerPlayer then
-                    pName:SetText(">> " .. displayText)
-                    pName:SetTextColor(0.3, 1.0, 0.3)
-                else
-                    pName:SetTextColor(0.75, 0.75, 0.78)
-                end
-                sectionY = sectionY - ROLL_ROW_HEIGHT
-            end
-
-            sectionY = sectionY - 4
-        end
+    -- Winner banner at bottom (only for completed, if not already shown in timer row)
+    if rollData.completed and winnerPlayer then
+        rollY = rollY - 2
     end
 
-    -- Calculate total height from bottom-most element
-    -- sectionY is the lowest Y coordinate (negative, counting down from top)
-    local totalH = PANEL_PADDING * 2 - sectionY
+    -- Calculate total height
+    local totalH = PANEL_PADDING * 2 - rollY
     panel:SetHeight(totalH)
 
     -- Store for timer updates
@@ -625,7 +566,7 @@ local function BuildActivePanel(content, rollData, yOffset)
     return panel, totalH
 end
 
--- ---- Build a single history entry ----
+-- ---- Build a single history entry (compact layout, same as active) ----
 
 local function BuildHistoryEntry(content, rollData, yOffset)
     local entry = CreateFrame("Frame", nil, content)
@@ -633,87 +574,105 @@ local function BuildHistoryEntry(content, rollData, yOffset)
     entry:SetWidth(contentWidth)
 
     local qColor = QUALITY_COLORS[rollData.quality] or QUALITY_COLORS[2]
-    local y = -PANEL_PADDING
-
-    -- Item icon
     local iconH = 28
+    local lineH = 14
+
+    -- -- Item header: icon + name
     local icon = entry:CreateTexture(nil, "ARTWORK")
     icon:SetSize(iconH, iconH)
     icon:SetPoint("TOPLEFT", entry, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
     icon:SetTexture(rollData.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
     icon:SetDesaturated(true)
-    icon:SetAlpha(0.4)
+    icon:SetAlpha(0.5)
 
-    -- Item name
+    -- Quality border (dimmer for history)
+    local iconBorder = ColorTexture(entry, "BORDER", qColor.r, qColor.g, qColor.b, 0.25)
+    iconBorder:SetSize(iconH + 2, iconH + 2)
+    iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+
     local name = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
-    name:SetPoint("RIGHT", entry, "RIGHT", -PANEL_PADDING - 80, 0)
+    name:SetPoint("RIGHT", entry, "RIGHT", -PANEL_PADDING, 0)
     name:SetJustifyH("LEFT")
-    name:SetWordWrap(false)
-    name:SetText(rollData.name)
-    name:SetTextColor(qColor.r * 0.5, qColor.g * 0.5, qColor.b * 0.5)
+    name:SetWordWrap(true)
+    local displayName = rollData.name
+    if rollData.count and rollData.count > 1 then
+        displayName = displayName .. " (x" .. rollData.count .. ")"
+    end
+    name:SetText(displayName)
+    name:SetTextColor(qColor.r * 0.55, qColor.g * 0.55, qColor.b * 0.55)
 
-    -- Winner
-    local winner = ""
-    local hasNeed = false
+    -- Winner banner
+    local timerRowY = -PANEL_PADDING - iconH - 4
+    local winnerPlayer, winValue, winType = DetermineWinner(rollData.rolls)
+    local rollY = timerRowY - 4
+
+    if winnerPlayer then
+        local winTypeLabel = L.ROLL_LABELS[winType] or winType
+        local winText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        winText:SetPoint("TOPLEFT", entry, "TOPLEFT", PANEL_PADDING, rollY)
+        winText:SetText(">> Winner: " .. winnerPlayer .. " (" .. winTypeLabel .. ": " .. winValue .. ")")
+        winText:SetTextColor(0.3, 1.0, 0.3)
+        rollY = rollY - lineH - 2
+    end
+
+    -- -- Roll rows: [icon] PlayerA(87), PlayerB(42)
+
+    local rollsByType = { need = {}, greed = {}, disenchant = {}, pass = {} }
+    for playerName, rollInfo in pairs(rollData.rolls) do
+        local rType = GetRollInfo(rollInfo)
+        if rollsByType[rType] then
+            table.insert(rollsByType[rType], { name = playerName, value = type(rollInfo) == "table" and rollInfo.value or nil })
+        end
+    end
     for _, rt in ipairs(ROLL_SECTIONS) do
-        for playerName, rollInfo in pairs(rollData.rolls) do
-            local rType = GetRollInfo(rollInfo)
-            if rType == rt then
-                if rt == "need" then winner = playerName; hasNeed = true; break
-                elseif rt == "greed" and winner == "" then winner = playerName end
+        table.sort(rollsByType[rt], function(a, b)
+            local va = a.value or -1
+            local vb = b.value or -1
+            if va ~= vb then return va > vb end
+            return a.name < b.name
+        end)
+    end
+
+    for _, rt in ipairs(ROLL_SECTIONS) do
+        local entries = rollsByType[rt]
+        if #entries > 0 then
+            -- Icon (dimmer for history)
+            local rIcon = entry:CreateTexture(nil, "ARTWORK")
+            rIcon:SetSize(ROLL_ICON_SIZE, ROLL_ICON_SIZE)
+            rIcon:SetPoint("TOPLEFT", entry, "TOPLEFT", PANEL_PADDING, rollY)
+            rIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
+            rIcon:SetDesaturated(true)
+            rIcon:SetAlpha(0.5)
+
+            -- Build player list
+            local parts = {}
+            for _, e in ipairs(entries) do
+                parts[#parts + 1] = e.value and (e.name .. "(" .. e.value .. ")") or e.name
             end
-        end
-        if hasNeed then break end
-    end
 
-    if winner ~= "" then
-        local winLabel = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        winLabel:SetPoint("TOPRIGHT", entry, "TOPRIGHT", -PANEL_PADDING, -PANEL_PADDING + 1)
-        winLabel:SetText(">> " .. winner)
-        winLabel:SetTextColor(0.3, 1.0, 0.3)
-    end
+            local rText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            rText:SetPoint("LEFT", rIcon, "RIGHT", 2, 0)
+            rText:SetPoint("RIGHT", entry, "RIGHT", -PANEL_PADDING, 0)
+            rText:SetJustifyH("LEFT")
+            rText:SetWordWrap(true)
+            rText:SetText(table.concat(parts, ", "))
+            rText:SetTextColor(0.5, 0.5, 0.52)
 
-    y = y - iconH - 2
-
-    -- Roll summary (compact, inline)
-    local parts = {}
-    for _, sectionType in ipairs(ROLL_SECTIONS) do
-        local players = {}
-        for playerName, rollInfo in pairs(rollData.rolls) do
-            local rType, rValue = GetRollInfo(rollInfo)
-            if rType == sectionType then
-                local entry = rValue and (playerName .. "(" .. rValue .. ")") or playerName
-                table.insert(players, entry)
-            end
-        end
-        table.sort(players)
-        if #players > 0 then
-            table.insert(parts, L.ROLL_LABELS[sectionType] .. ": " .. table.concat(players, ", "))
+            local maxCharsPerLine = math.max(1, math.floor((entry:GetWidth() - PANEL_PADDING * 2 - ROLL_ICON_SIZE - 2) / 5))
+            local textStr = table.concat(parts, ", ")
+            local lineCount = math.max(1, math.ceil(#textStr / maxCharsPerLine))
+            rollY = rollY - (lineCount * lineH + 2)
         end
     end
 
-    if #parts > 0 then
-        local summary = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        summary:SetPoint("TOPLEFT", entry, "TOPLEFT", PANEL_PADDING + 4, y)
-        summary:SetPoint("TOPRIGHT", entry, "TOPRIGHT", -PANEL_PADDING, y)
-        summary:SetJustifyH("LEFT")
-        summary:SetWordWrap(true)
-        summary:SetText(table.concat(parts, "  |  "))
-        summary:SetTextColor(0.5, 0.5, 0.52)
-
-        y = y - 20
-    else
-        y = y - 4
-    end
-
-    -- Separator line at bottom
+    -- Separator line
     local sep = ColorTexture(entry, "BORDER", 0.15, 0.15, 0.15, 0.3)
     sep:SetPoint("BOTTOMLEFT", entry, "BOTTOMLEFT", PANEL_PADDING, 0)
     sep:SetPoint("BOTTOMRIGHT", entry, "BOTTOMRIGHT", -PANEL_PADDING, 0)
     sep:SetHeight(1)
 
-    local totalH = PANEL_PADDING + iconH + (y * -1) + 6
+    local totalH = PANEL_PADDING * 2 - rollY
     entry:SetHeight(totalH)
     entry:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
     entry:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)

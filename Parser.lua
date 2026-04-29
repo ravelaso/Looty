@@ -138,4 +138,19 @@ function Parser:ProcessMessage(message)
         end
         return
     end
+
+    -- 3. "You won: [ItemName]" — confirmation that you won the roll
+    local _, _, itemName = string.find(message, "^You won:%s*(.+)$")
+    if itemName then
+        local targetRollID = FindRollByItem(itemName)
+        if targetRollID then
+            local myName = UnitName("player")
+            local roll = addon:GetRoll(targetRollID)
+            if roll then
+                roll.wonByMe = true
+                LootyUI:Refresh()
+            end
+        end
+        return
+    end
 end
