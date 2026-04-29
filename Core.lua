@@ -88,18 +88,6 @@ end
 -- ---- Event Handlers ----
 
 function addon:START_LOOT_ROLL(event, rollID, duration)
-    -- Move completed rolls to history when a new roll appears
-    local toRemove = {}
-    for rid, rollData in pairs(self.activeRolls) do
-        if rollData.completed then
-            table.insert(self.completedRolls, 1, rollData)
-            table.insert(toRemove, rid)
-        end
-    end
-    for _, rid in ipairs(toRemove) do
-        self.activeRolls[rid] = nil
-    end
-
     local texture, name, count, quality, bindOnPickUp,
           canNeed, canGreed, canDisenchant = GetLootRollItemInfo(rollID)
 
@@ -136,10 +124,9 @@ end
 
 function addon:CANCEL_LOOT_ROLL(event, rollID)
     if self.activeRolls[rollID] then
-        -- Mark as completed but KEEP in active tab.
-        -- Will be moved to history when a new roll starts.
-        self.activeRolls[rollID].completed = true
-        self.activeRolls[rollID].completedAt = GetTime()
+        -- Move directly to history (completed rolls are always shown in history tab)
+        table.insert(self.completedRolls, 1, self.activeRolls[rollID])
+        self.activeRolls[rollID] = nil
         LootyUI:Refresh()
     end
 end
@@ -276,7 +263,7 @@ function addon:InjectTestRolls()
 
     local now = GetTime()
 
-    -- Active roll 1: Epic item with mixed rolls
+    -- Active roll 1: Epic item with mixed rolls (timer shows ~1:30)
     self.activeRolls[9001] = {
         rollID = 9001,
         name = "Vestments of the Devout",
@@ -284,7 +271,7 @@ function addon:InjectTestRolls()
         texture = "Interface\\Icons\\INV_Chest_Cloth_04",
         count = 1,
         quality = 4, -- Epic
-        startTime = now - 45,
+        startTime = now,
         duration = 90,
         rolls = {
             Buenclima = { type = "greed", value = 24 },
@@ -296,7 +283,7 @@ function addon:InjectTestRolls()
         },
     }
 
-    -- Active roll 2: Rare item, still rolling
+    -- Active roll 2: Rare item, fewer players (timer shows ~1:30)
     self.activeRolls[9002] = {
         rollID = 9002,
         name = "Blessed Claymore",
@@ -304,7 +291,7 @@ function addon:InjectTestRolls()
         texture = "Interface\\Icons\\INV_Sword_25",
         count = 1,
         quality = 3, -- Rare
-        startTime = now - 10,
+        startTime = now,
         duration = 90,
         rolls = {
             Buenclima = { type = "need", value = 55 },
@@ -312,35 +299,31 @@ function addon:InjectTestRolls()
         },
     }
 
-    -- Completed roll (should appear in active until next roll starts)
-    self.activeRolls[9003] = {
-        rollID = 9003,
+    -- History entries (completed rolls)
+    table.insert(self.completedRolls, {
+        rollID = 8001,
         name = "Staff of the Ancients",
         link = "|cffa335ee|Hitem:11111:0:0:0:0:0:0:0:0|h[Staff of the Ancients]|h|r",
         texture = "Interface\\Icons\\INV_Staff_08",
         count = 1,
         quality = 4, -- Epic
-        completed = true,
-        completedAt = now - 30,
-        startTime = now - 120,
+        startTime = now - 300,
         duration = 90,
         rolls = {
             HealerX   = { type = "need",     value = 76 },
             Buenclima = { type = "disenchant", value = 44 },
             MageBob   = { type = "pass" },
         },
-    }
+    })
 
-    -- One in history
     table.insert(self.completedRolls, {
-        rollID = 8001,
+        rollID = 8002,
         name = "Ironforge Gauntlets",
         link = "|cff1eff00|Hitem:22222:0:0:0:0:0:0:0:0|h[Ironforge Gauntlets]|h|r",
         texture = "Interface\\Icons\\INV_Gauntlets_04",
         count = 2,
         quality = 2, -- Uncommon
-        completed = true,
-        startTime = now - 300,
+        startTime = now - 600,
         duration = 90,
         rolls = {
             WarriorK = { type = "greed", value = 33 },
@@ -349,7 +332,7 @@ function addon:InjectTestRolls()
         },
     })
 
-    self:Print("Test data injected — 2 active, 1 completed, 1 in history.")
+    self:Print("Test data injected — 2 active rolls, 2 in history.")
 
     -- Auto-show window
     if LootyFrame and not LootyFrame:IsShown() then
