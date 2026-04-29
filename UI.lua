@@ -39,6 +39,35 @@ local WHITE_TEX = "Interface\\Buttons\\WHITE8X8"
 local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
 local currentTab = "active"
 
+-- ---- Determine winner: highest roll, priority need > greed > DE ----
+local function DetermineWinner(rolls)
+    local sections = { "need", "greed", "disenchant" }
+    for _, sectionType in ipairs(sections) do
+        local bestPlayer = nil
+        local bestValue = 0
+        for playerName, rollInfo in pairs(rolls) do
+            local rType = type(rollInfo) == "table" and rollInfo.type or rollInfo
+            local rValue = type(rollInfo) == "table" and rollInfo.value or nil
+            if rType == sectionType and rValue and rValue > bestValue then
+                bestValue = rValue
+                bestPlayer = playerName
+            end
+        end
+        if bestPlayer then
+            return bestPlayer, bestValue, sectionType
+        end
+    end
+    return nil, nil, nil
+end
+
+-- ---- Helper: get roll info from data (handles old string + new table format) ----
+local function GetRollInfo(rollInfo)
+    if type(rollInfo) == "table" then
+        return rollInfo.type, rollInfo.value
+    end
+    return rollInfo, nil
+end
+
 -- ---- Helper: solid color texture (3.3.5 compatible) ----
 local function ColorTexture(parent, layer, r, g, b, a)
     local tex = parent:CreateTexture(nil, layer)
@@ -67,6 +96,7 @@ function UI:Create()
     frame:SetPoint("TOP", UIParent, "TOP", 0, -200)
     frame:SetClampedToScreen(true)
     frame:SetToplevel(true)
+    frame:Hide() -- Hidden until first START_LOOT_ROLL
 
     -- ---- Background: solid dark grey ----
     local bg = frame:CreateTexture(nil, "BACKGROUND")
@@ -416,7 +446,7 @@ local function BuildActivePanel(content, rollData, yOffset)
     name:SetText(displayName)
     name:SetTextColor(qColor.r, qColor.g, qColor.b)
 
-    -- -- Timer bar row
+    -- -- Timer bar row (hidden for completed rolls)
     local timerRowY = -PANEL_PADDING - headerH - 6
     local timerBarH = 3
 
@@ -432,16 +462,40 @@ local function BuildActivePanel(content, rollData, yOffset)
     local timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, timerRowY - 2)
     timerText:SetJustifyH("RIGHT")
-    local mins = math.floor(rollData.duration / 60)
-    local secs = math.floor(rollData.duration % 60)
-    timerText:SetText(string.format("%d:%02d", mins, secs))
+
+    if rollData.completed then
+        -- Completed: hide timer, show winner
+        timerBg:Hide()
+        timerBar:Hide()
+        timerText:Hide()
+        local mins = math.floor(rollData.duration / 60)
+        local secs = math.floor(rollData.duration % 60)
+        timerText:SetText(string.format("DONE %d:%02d", mins, secs))
+        timerText:SetTextColor(0.5, 0.5, 0.5)
+        timerText:Show()
+
+        -- Winner banner
+        local winPlayer, winValue, winType = DetermineWinner(rollData.rolls)
+        if winPlayer then
+            local winLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            winLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING + 2, timerRowY - 1)
+            local winTypeLabel = L.ROLL_LABELS[winType] or winType
+            winLabel:SetText("Winner: " .. winPlayer .. " (" .. winTypeLabel .. ": " .. winValue .. ")")
+            winLabel:SetTextColor(0.3, 1.0, 0.3)
+        end
+    else
+        local mins = math.floor(rollData.duration / 60)
+        local secs = math.floor(rollData.duration % 60)
+        timerText:SetText(string.format("%d:%02d", mins, secs))
+    end
 
     -- -- Roll icon row
     local rollIconRowY = timerRowY - timerBarH - 6
 
     local rollCounts = { need = 0, greed = 0, disenchant = 0, pass = 0 }
     for _, rt in pairs(rollData.rolls) do
-        if rollCounts[rt] then rollCounts[rt] = rollCounts[rt] + 1 end
+        local rType = GetRollInfo(rt)
+        if rollCounts[rType] then rollCounts[rType] = rollCounts[rType] + 1 end
     end
 
     local rollIconX = PANEL_PADDING
@@ -493,12 +547,23 @@ local function BuildActivePanel(content, rollData, yOffset)
 
             sectionY = sectionY - SECTION_HEADER_HEIGHT
 
-            -- Player rows
+            -- Player rows with roll values
             for _, playerName in ipairs(players) do
+                local rollInfo = rollData.rolls[playerName]
+                local _, rValue = GetRollInfo(rollInfo)
+                local displayText = rValue and (playerName .. ": " .. rValue) or playerName
+
                 local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
                 pName:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING + 8, sectionY)
-                pName:SetText(playerName)
-                pName:SetTextColor(0.75, 0.75, 0.78)
+                pName:SetText(displayText)
+                -- Highlight the winner in green
+                local winnerPlayer, _, _ = DetermineWinner(rollData.rolls)
+                if rollData.completed and playerName == winnerPlayer then
+                    pName:SetText(">> " .. displayText)
+                    pName:SetTextColor(0.3, 1.0, 0.3)
+                else
+                    pName:SetTextColor(0.75, 0.75, 0.78)
+                end
                 sectionY = sectionY - ROLL_ROW_HEIGHT
             end
 
@@ -556,10 +621,11 @@ local function BuildHistoryEntry(content, rollData, yOffset)
     local winner = ""
     local hasNeed = false
     for _, rt in ipairs(ROLL_SECTIONS) do
-        for playerName, rollType in pairs(rollData.rolls) do
-            if rollType == rt then
-                if rt == "need" then winner = playerName; hasNeed = true; break
-                elseif rt == "greed" and winner == "" then winner = playerName end
+        for playerName, rollInfo in pairs(rollData.rolls) do
+            local rType = GetRollInfo(rollInfo)
+            if rType == rt then
+                if rType == "need" then winner = playerName; hasNeed = true; break
+                elseif rType == "greed" and winner == "" then winner = playerName end
             end
         end
         if hasNeed then break end
@@ -578,8 +644,12 @@ local function BuildHistoryEntry(content, rollData, yOffset)
     local parts = {}
     for _, sectionType in ipairs(ROLL_SECTIONS) do
         local players = {}
-        for playerName, rollType in pairs(rollData.rolls) do
-            if rollType == sectionType then table.insert(players, playerName) end
+        for playerName, rollInfo in pairs(rollData.rolls) do
+            local rType, rValue = GetRollInfo(rollInfo)
+            if rType == sectionType then
+                local entry = rValue and (playerName .. "(" .. rValue .. ")") or playerName
+                table.insert(players, entry)
+            end
         end
         table.sort(players)
         if #players > 0 then
@@ -638,10 +708,21 @@ function UI:Refresh()
     local yOffset = -CONTENT_MARGIN
 
     if currentTab == "active" then
+        -- Active rolls (still rolling)
         local activeRolls = addon:GetAllActiveRolls()
         for i, rollData in ipairs(activeRolls) do
-            local panel, panelH = BuildActivePanel(content, rollData, yOffset)
-            yOffset = yOffset - panelH - 6
+            if not rollData.completed then
+                local panel, panelH = BuildActivePanel(content, rollData, yOffset)
+                yOffset = yOffset - panelH - 6
+            end
+        end
+
+        -- Completed rolls (waiting for next roll to move to history)
+        for i, rollData in ipairs(activeRolls) do
+            if rollData.completed then
+                local panel, panelH = BuildActivePanel(content, rollData, yOffset)
+                yOffset = yOffset - panelH - 6
+            end
         end
 
         if #activeRolls == 0 then
@@ -721,6 +802,26 @@ function UI:UpdateTimers()
             local secs = math.floor(remaining % 60)
             if child.timerText then
                 child.timerText:SetText(string.format("%d:%02d", mins, secs))
+            end
+        end
+    end
+
+    -- Auto-move stale completed rolls to history (60s after completion)
+    -- if no new roll has appeared yet
+    local completedRolls = addon:GetAllActiveRolls()
+    for _, rollData in ipairs(completedRolls) do
+        if rollData.completed and rollData.completedAt then
+            local age = GetTime() - rollData.completedAt
+            if age > 60 then
+                -- Move to history
+                for rid, rd in pairs(addon.activeRolls) do
+                    if rd == rollData then
+                        addon.activeRolls[rid] = nil
+                        table.insert(addon.completedRolls, 1, rd)
+                        break
+                    end
+                end
+                UI:Refresh()
             end
         end
     end

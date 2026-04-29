@@ -11,81 +11,131 @@ local L = Looty_L
 local Parser = {}
 LootyParser = Parser
 
--- Compiled regex cache
-local compiledPatterns = {}
-
-for pattern, rollType in pairs(L.ROLL_PATTERNS) do
-    table.insert(compiledPatterns, { pattern = pattern, rollType = rollType })
-end
+-- Normalized roll type strings to internal keys
+local ROLL_TYPE_MAP = {
+    ["Need"]       = "need",
+    ["Greed"]      = "greed",
+    ["Disenchant"] = "disenchant",
+    ["Pass"]       = "pass",
+}
 
 -- Extract the raw item name from an item link for matching.
 -- Item link format: |cffXXXXXX|Hitem:ITEMID:...|h[ItemName]|h|r
--- We extract the display name between the ] brackets.
+-- Use [^%]]+ to stop at the FIRST closing bracket.
 local function ExtractItemName(text)
-    -- Check if text is an item link
-    local _, _, itemName = string.find(text, "%[(.+)%]")
+    local _, _, itemName = string.find(text, "%[([^%]]+)%]")
     if itemName then
         return itemName
     end
-    -- Not a link, return as-is
     return text
 end
 
--- Match a roll message against known patterns.
--- Returns: playerName, itemName (raw), rollType or nil
-function Parser:ParseMessage(message)
-    for _, entry in ipairs(compiledPatterns) do
-        local _, _, playerName, itemName = string.find(message, entry.pattern)
-        if playerName and itemName then
-            -- Ignore the system message where "Everyone" is the roller
-            if playerName == "Everyone" then
-                return nil, nil, nil
+-- Match a roll RESULT message — the most important one.
+-- Format: "Greed Roll - 24 for [Veteran Gloves] by Buenclima"
+-- Returns: rollType (internal key), value, itemName, playerName
+function Parser:ParseRollResult(message)
+    for _, pattern in ipairs(L.ROLL_RESULT_PATTERNS) do
+        local _, _, rollTypeRaw, valueStr, itemName, playerName = string.find(message, pattern)
+        if rollTypeRaw and valueStr and playerName then
+            local rollType = ROLL_TYPE_MAP[rollTypeRaw]
+            if rollType then
+                return rollType, tonumber(valueStr), itemName, playerName
             end
-            return playerName, itemName, entry.rollType
         end
     end
+    return nil, nil, nil, nil
+end
+
+-- Match a roll TYPE pattern (selection without value).
+-- Returns: playerName (or nil for self), itemName, rollType (internal key)
+function Parser:ParseMessageType(message)
+    -- Self-selection MUST be checked first (most specific pattern)
+    -- "You have selected Greed for: [Item]"
+    for _, pattern in ipairs(L.ROLL_PATTERNS_SELF) do
+        local _, _, rollTypeRaw, itemName = string.find(message, pattern)
+        if rollTypeRaw and itemName then
+            local mapped = ROLL_TYPE_MAP[rollTypeRaw]
+            if mapped then
+                return nil, itemName, mapped
+            end
+        end
+    end
+
+    -- Other players selection
+    for pattern, rollType in pairs(L.ROLL_PATTERNS_OTHER) do
+        if rollType == "other_selection" then
+            local _, _, playerName, rollTypeRaw, itemName = string.find(message, pattern)
+            if playerName and rollTypeRaw and itemName then
+                local mapped = ROLL_TYPE_MAP[rollTypeRaw]
+                if mapped then
+                    return playerName, itemName, mapped
+                end
+            end
+        elseif rollType == "other_selection_de" then
+            local _, _, playerName, rollTypeRaw, itemName = string.find(message, pattern)
+            if playerName and rollTypeRaw and itemName then
+                return playerName, itemName, "disenchant"
+            end
+        else
+            -- Pass patterns
+            local _, _, playerName, itemName = string.find(message, pattern)
+            if playerName and itemName then
+                return playerName, itemName, rollType
+            end
+        end
+    end
+
     return nil, nil, nil
 end
 
--- Process a CHAT_MSG_LOOT message.
--- This is called from Core.lua on every CHAT_MSG_LOOT event.
-function Parser:ProcessMessage(message)
-    if not message then
-        return
-    end
-
-    local playerName, itemName, rollType = self:ParseMessage(message)
-    if not playerName then
-        return
-    end
-
-    -- itemName here may or may not be a full link.
-    -- We need to find which active roll this message
-    -- belongs to by matching item names.
-    local targetRollID = nil
+-- Find active roll by matching item name
+local function FindRollByItem(itemName)
+    local msgName = ExtractItemName(itemName)
+    if not msgName or msgName == "" then return nil end
 
     for _, rollData in ipairs(addon:GetAllActiveRolls()) do
         local linkName = ExtractItemName(rollData.link or "")
-        local msgName = ExtractItemName(itemName)
-
-        -- Fallback: compare raw names if link extraction fails
         if not linkName or linkName == "" then
             linkName = rollData.name
         end
-        if not msgName or msgName == "" then
-            msgName = itemName
-        end
-
         if linkName == msgName then
-            targetRollID = rollData.rollID
-            break
+            return rollData.rollID
         end
     end
+    return nil
+end
 
-    if targetRollID then
-        if addon:RecordRoll(targetRollID, playerName, rollType) then
-            -- Optional: debug print
-            -- addon:Print(playerName .. " -> " .. (L.ROLL_LABELS[rollType] or rollType) .. " on " .. targetRollID)
+-- Process a CHAT_MSG_LOOT message.
+function Parser:ProcessMessage(message)
+    if not message then return end
+
+    -- 1. Try roll RESULT first (has everything: type + value + player + item)
+    local rollType, value, itemName, playerName = self:ParseRollResult(message)
+    if rollType and value and playerName then
+        local targetRollID = FindRollByItem(itemName)
+        if targetRollID then
+            addon:RecordRoll(targetRollID, playerName, rollType, value)
         end
+        return
+    end
+
+    -- 2. Try roll TYPE patterns (selection without value)
+    local rawName, itemName, rollType = self:ParseMessageType(message)
+    if itemName and rollType then
+        if rawName == nil then
+            -- Self-selection: "You have selected Greed for: [Item]"
+            local targetRollID = FindRollByItem(itemName)
+            if targetRollID then
+                local myName = UnitName("player")
+                addon:RecordRoll(targetRollID, myName, rollType)
+            end
+        else
+            -- Pass messages or other selection without value
+            local targetRollID = FindRollByItem(itemName)
+            if targetRollID then
+                addon:RecordRoll(targetRollID, rawName, rollType)
+            end
+        end
+        return
     end
 end

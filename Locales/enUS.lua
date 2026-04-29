@@ -11,16 +11,31 @@ local L = {}
 -- The itemName capture includes the item link so
 -- we match against GetLootRollItemInfo().
 
-L.ROLL_PATTERNS = {
-    -- Need
-    ["^(.*) has selected Need for%s*: (.*)$"] = "need",
-    -- Greed
-    ["^(.*) has selected Greed for%s*: (.*)$"] = "greed",
-    -- Disenchant
-    ["^(.*) has selected to Disenchant%s*: (.*)$"] = "disenchant",
-    -- Pass (auto-pass on ineligible items)
-    ["^(.*) passed on%s*: (.*)$"] = "pass",
-    ["^(.*) automatically passed on%s*: (.*)$"] = "pass",
+-- Player's own selection (checked FIRST — most specific)
+-- "You have selected Greed for: [Veteran Gloves]"
+L.ROLL_PATTERNS_SELF = {
+    "^You have selected (.-) for%s*:?%s*(.+)$",
+}
+
+-- Other players' selection + pass (checked SECOND)
+L.ROLL_PATTERNS_OTHER = {
+    -- "PlayerName has selected Need for [ItemName]"
+    ["^(.-) has selected (.-) for%s*:?%s*(.+)$"] = "other_selection",
+    -- "PlayerName has selected to Disenchant [ItemName]"
+    ["^(.-) has selected to (.-)%s*:?%s*(.+)$"] = "other_selection_de",
+    -- Pass
+    ["^(.-) passed on%s*:?%s*(.+)$"] = "pass",
+    ["^(.-) automatically passed on%s*:?%s*(.+)$"] = "pass",
+}
+
+-- Roll result messages — the main source of truth (type + value + item + player).
+L.ROLL_RESULT_PATTERNS = {
+    -- Your own result: "Greed Roll - 24 for [Veteran Gloves] by Buenclima"
+    "^(.-) Roll %- (%d+) for%s*(.+) by (.+)$",
+    -- Other players: "PlayerName rolls 85 (1-100) for [ItemName]"
+    "^(.-) rolls (%d+) %(1%-100%) for%s*(.+)$",
+    -- No item reference (rare): "PlayerName rolls 85 (1-100)."
+    "^(.-) rolls (%d+) %(1%-100%)%.$",
 }
 
 -- Roll type display strings

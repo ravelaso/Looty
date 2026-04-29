@@ -88,6 +88,18 @@ end
 -- ---- Event Handlers ----
 
 function addon:START_LOOT_ROLL(event, rollID, duration)
+    -- Move completed rolls to history when a new roll appears
+    local toRemove = {}
+    for rid, rollData in pairs(self.activeRolls) do
+        if rollData.completed then
+            table.insert(self.completedRolls, 1, rollData)
+            table.insert(toRemove, rid)
+        end
+    end
+    for _, rid in ipairs(toRemove) do
+        self.activeRolls[rid] = nil
+    end
+
     local texture, name, count, quality, bindOnPickUp,
           canNeed, canGreed, canDisenchant = GetLootRollItemInfo(rollID)
 
@@ -115,17 +127,19 @@ function addon:START_LOOT_ROLL(event, rollID, duration)
 
     self:Print("New roll: " .. name)
     LootyUI:Refresh()
+
+    -- Auto-show window if hidden
+    if LootyFrame and not LootyFrame:IsShown() then
+        LootyFrame:Show()
+    end
 end
 
 function addon:CANCEL_LOOT_ROLL(event, rollID)
     if self.activeRolls[rollID] then
-        local rollData = self.activeRolls[rollID]
-
-        -- Always keep completed rolls for tracking
-        rollData.completed = GetTime()
-        table.insert(self.completedRolls, 1, rollData)
-
-        self.activeRolls[rollID] = nil
+        -- Mark as completed but KEEP in active tab.
+        -- Will be moved to history when a new roll starts.
+        self.activeRolls[rollID].completed = true
+        self.activeRolls[rollID].completedAt = GetTime()
         LootyUI:Refresh()
     end
 end
@@ -157,7 +171,7 @@ function addon:GetCompletedRolls()
     return self.completedRolls
 end
 
-function addon:RecordRoll(rollID, playerName, rollType)
+function addon:RecordRoll(rollID, playerName, rollType, value)
     local roll = self.activeRolls[rollID]
     if not roll then
         return false
@@ -168,9 +182,41 @@ function addon:RecordRoll(rollID, playerName, rollType)
         return false
     end
 
-    roll.rolls[playerName] = rollType
+    roll.rolls[playerName] = { type = rollType, value = value or nil }
     LootyUI:Refresh()
     return true
+end
+
+function addon:UpdateRollValue(rollID, playerName, value)
+    local roll = self.activeRolls[rollID]
+    if not roll then return end
+    if roll.rolls[playerName] then
+        local info = roll.rolls[playerName]
+        -- Handle both old string format and new table format
+        if type(info) == "table" then
+            info.value = value
+        else
+            roll.rolls[playerName] = { type = info, value = value }
+        end
+        LootyUI:Refresh()
+    end
+end
+
+function addon:FindRollByPlayer(playerName)
+    -- Find the most recent active roll where this player has
+    -- a type but no value yet
+    local activeRolls = self:GetAllActiveRolls()
+    for _, roll in ipairs(activeRolls) do
+        if roll.rolls[playerName] then
+            local info = roll.rolls[playerName]
+            local rollType = type(info) == "table" and info.type or info
+            local rollValue = type(info) == "table" and info.value or nil
+            if rollType and not rollValue then
+                return roll.rollID
+            end
+        end
+    end
+    return nil
 end
 
 -- ---- Utility ----
