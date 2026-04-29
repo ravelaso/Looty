@@ -1,0 +1,11 @@
+## Interface: 30300
+## Title: Looty
+## Notes: Tracks group loot rolls in a compact window.
+## Author: Ravelo
+## Version: 0.1.0
+## SavedVariables: Looty_SavedVars
+
+Locales\enUS.lua
+Core.lua
+Parser.lua
+UI.lua
