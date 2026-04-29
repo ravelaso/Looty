@@ -256,12 +256,107 @@ SlashCmdList["LOOTY"] = function(msg)
         addon.completedRolls = {}
         addon:Print("Roll history cleared.")
         LootyUI:Refresh()
+    elseif msg == "test" then
+        addon:InjectTestRolls()
     else
         addon:Print("Commands:")
         addon:Print("  /looty        - Toggle window")
         addon:Print("  /looty lock   - Toggle window lock (dragging)")
         addon:Print("  /looty clear  - Clear completed roll history")
+        addon:Print("  /looty test   - Inject mock rolls for testing")
     end
+end
+
+-- ---- Test Data Injection (100% local, no server interaction) ----
+
+function addon:InjectTestRolls()
+    -- Clear existing state
+    self.activeRolls = {}
+    self.completedRolls = {}
+
+    local now = GetTime()
+
+    -- Active roll 1: Epic item with mixed rolls
+    self.activeRolls[9001] = {
+        rollID = 9001,
+        name = "Vestments of the Devout",
+        link = "|cffa335ee|Hitem:12345:0:0:0:0:0:0:0:0|h[Vestments of the Devout]|h|r",
+        texture = "Interface\\Icons\\INV_Chest_Cloth_04",
+        count = 1,
+        quality = 4, -- Epic
+        startTime = now - 45,
+        duration = 90,
+        rolls = {
+            Buenclima = { type = "greed", value = 24 },
+            PlayerA   = { type = "need",  value = 87 },
+            PlayerB   = { type = "need",  value = 42 },
+            PlayerC   = { type = "greed", value = 91 },
+            PlayerD   = { type = "pass" },
+            PlayerE   = { type = "greed", value = 15 },
+        },
+    }
+
+    -- Active roll 2: Rare item, still rolling
+    self.activeRolls[9002] = {
+        rollID = 9002,
+        name = "Blessed Claymore",
+        link = "|cff0070dd|Hitem:67890:0:0:0:0:0:0:0:0|h[Blessed Claymore]|h|r",
+        texture = "Interface\\Icons\\INV_Sword_25",
+        count = 1,
+        quality = 3, -- Rare
+        startTime = now - 10,
+        duration = 90,
+        rolls = {
+            Buenclima = { type = "need", value = 55 },
+            TankJoe   = { type = "need", value = 63 },
+        },
+    }
+
+    -- Completed roll (should appear in active until next roll starts)
+    self.activeRolls[9003] = {
+        rollID = 9003,
+        name = "Staff of the Ancients",
+        link = "|cffa335ee|Hitem:11111:0:0:0:0:0:0:0:0|h[Staff of the Ancients]|h|r",
+        texture = "Interface\\Icons\\INV_Staff_08",
+        count = 1,
+        quality = 4, -- Epic
+        completed = true,
+        completedAt = now - 30,
+        startTime = now - 120,
+        duration = 90,
+        rolls = {
+            HealerX   = { type = "need",     value = 76 },
+            Buenclima = { type = "disenchant", value = 44 },
+            MageBob   = { type = "pass" },
+        },
+    }
+
+    -- One in history
+    table.insert(self.completedRolls, {
+        rollID = 8001,
+        name = "Ironforge Gauntlets",
+        link = "|cff1eff00|Hitem:22222:0:0:0:0:0:0:0:0|h[Ironforge Gauntlets]|h|r",
+        texture = "Interface\\Icons\\INV_Gauntlets_04",
+        count = 2,
+        quality = 2, -- Uncommon
+        completed = true,
+        startTime = now - 300,
+        duration = 90,
+        rolls = {
+            WarriorK = { type = "greed", value = 33 },
+            Buenclima = { type = "greed", value = 88 },
+            RogueX   = { type = "pass" },
+        },
+    })
+
+    self:Print("Test data injected — 2 active, 1 completed, 1 in history.")
+
+    -- Auto-show window
+    if LootyFrame and not LootyFrame:IsShown() then
+        LootyFrame:Show()
+    end
+
+    LootyUI:Refresh()
 end
 
 addon:RegisterEvent("PLAYER_LOGIN")

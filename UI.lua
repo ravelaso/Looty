@@ -111,87 +111,8 @@ function UI:Create()
     topLine:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     topLine:SetHeight(1)
 
-    -- ---- Tab bar background (slightly lighter) ----
-    local tabBar = ColorTexture(frame, "BACKGROUND", 0.11, 0.11, 0.11, 1.0)
-    tabBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    tabBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-    tabBar:SetHeight(TAB_BAR_HEIGHT)
-
-    -- Separator below tab bar
-    local tabSep = ColorTexture(frame, "BORDER", 0.2, 0.2, 0.2, 0.6)
-    tabSep:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -TAB_BAR_HEIGHT)
-    tabSep:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -TAB_BAR_HEIGHT)
-    tabSep:SetHeight(1)
-
-    -- ---- Close button ----
-    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, 1)
-    closeBtn:SetSize(24, 24)
-
-    -- ---- Tab buttons ----
-    frame.tabs = {}
-
-    -- Active tab
-    local activeTab = CreateFrame("Button", nil, frame)
-    activeTab:SetSize(85, TAB_BAR_HEIGHT - 2)
-    activeTab:SetPoint("LEFT", frame, "LEFT", 6, 0)
-    activeTab:EnableMouse(true)
-    activeTab:SetScript("OnClick", function() UI:SwitchTab("active") end)
-    activeTab:SetScript("OnEnter", function()
-        if currentTab ~= "active" then activeTab.hoverBg:Show() end
-    end)
-    activeTab:SetScript("OnLeave", function() activeTab.hoverBg:Hide() end)
-
-    -- Active tab indicator line (bottom)
-    local activeIndicator = ColorTexture(activeTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
-    activeIndicator:SetPoint("BOTTOMLEFT", activeTab, "BOTTOMLEFT", 0, 0)
-    activeIndicator:SetPoint("BOTTOMRIGHT", activeTab, "BOTTOMRIGHT", 0, 0)
-    activeIndicator:SetHeight(2)
-    activeTab.indicator = activeIndicator
-
-    -- Hover background
-    local activeHover = ColorTexture(activeTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    activeHover:SetAllPoints(activeTab)
-    activeHover:Hide()
-    activeTab.hoverBg = activeHover
-
-    local activeText = activeTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    activeText:SetPoint("CENTER", activeTab, "CENTER", 0, 0)
-    activeText:SetText("Active: 0")
-    activeTab.text = activeText
-
-    frame.tabs.active = activeTab
-
-    -- History tab
-    local historyTab = CreateFrame("Button", nil, frame)
-    historyTab:SetSize(75, TAB_BAR_HEIGHT - 2)
-    historyTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
-    historyTab:EnableMouse(true)
-    historyTab:SetScript("OnClick", function() UI:SwitchTab("history") end)
-    historyTab:SetScript("OnEnter", function()
-        if currentTab ~= "history" then historyTab.hoverBg:Show() end
-    end)
-    historyTab:SetScript("OnLeave", function() historyTab.hoverBg:Hide() end)
-
-    local historyIndicator = ColorTexture(historyTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
-    historyIndicator:SetPoint("BOTTOMLEFT", historyTab, "BOTTOMLEFT", 0, 0)
-    historyIndicator:SetPoint("BOTTOMRIGHT", historyTab, "BOTTOMRIGHT", 0, 0)
-    historyIndicator:SetHeight(2)
-    historyTab.indicator = historyIndicator
-
-    local historyHover = ColorTexture(historyTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    historyHover:SetAllPoints(historyTab)
-    historyHover:Hide()
-    historyTab.hoverBg = historyHover
-
-    local historyText = historyTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    historyText:SetPoint("CENTER", historyTab, "CENTER", 0, 0)
-    historyText:SetText("History")
-    historyTab.text = historyText
-
-    frame.tabs.history = historyTab
-
     -- ---- Custom scroll area ----
+    -- Created BEFORE tabs so tabs render ON TOP of scroll content.
     -- We build our own scroll setup instead of UIPanelScrollFrameTemplate
     -- to have full control over the scrollbar appearance.
 
@@ -239,12 +160,13 @@ function UI:Create()
     thumbHover:Hide()
     thumb.thumbHover = thumbHover
 
-    -- Drag logic
+    -- Drag logic (with nil guards for resize edge case)
     local thumbOffset = 0
     thumb:SetScript("OnDragStart", function()
         local _, thumbTop = thumb:GetCenter()
-        local _, scrollBarTop = scrollBar:GetTop()
-        thumbOffset = thumbTop - scrollBarTop
+        local sbTop = scrollBar:GetTop()
+        if not sbTop then sbTop = scrollBar:GetParent():GetTop() - TAB_BAR_HEIGHT end
+        thumbOffset = thumbTop - sbTop
         thumb.isDragging = true
     end)
     thumb:SetScript("OnDragStop", function()
@@ -253,10 +175,12 @@ function UI:Create()
     thumb:SetScript("OnUpdate", function()
         if not thumb.isDragging then return end
         local mouseY = GetCursorPosition()
-        local _, scale = scrollBar:GetEffectiveScale()
+        local scale = scrollBar:GetEffectiveScale()
+        if not scale then return end
         mouseY = mouseY / scale
         local sbTop = scrollBar:GetTop()
         local sbBottom = scrollBar:GetBottom()
+        if not sbTop or not sbBottom then return end
         local trackH = sbTop - sbBottom
 
         local newTop = math.max(sbTop, math.min(sbBottom + thumb:GetHeight(), mouseY + thumbOffset))
@@ -287,6 +211,91 @@ function UI:Create()
         scrollFrame:SetVerticalScroll(offset)
         UI:UpdateThumbPosition()
     end)
+
+    -- ---- Tab bar ----
+    -- Created AFTER scroll area so the frame sits ON TOP in Z-order.
+
+    local tabBarOverlay = CreateFrame("Frame", nil, frame)
+    tabBarOverlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    tabBarOverlay:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    tabBarOverlay:SetHeight(TAB_BAR_HEIGHT)
+
+    -- Tab bar background texture
+    local tabBarBg = ColorTexture(tabBarOverlay, "BACKGROUND", 0.11, 0.11, 0.11, 1.0)
+    tabBarBg:SetAllPoints(tabBarOverlay)
+    -- Separator line at bottom
+    local tabSep = ColorTexture(tabBarOverlay, "BORDER", 0.2, 0.2, 0.2, 0.6)
+    tabSep:SetPoint("BOTTOMLEFT", tabBarOverlay, "BOTTOMLEFT", 0, 0)
+    tabSep:SetPoint("BOTTOMRIGHT", tabBarOverlay, "BOTTOMRIGHT", 0, 0)
+    tabSep:SetHeight(1)
+
+    -- Close button on the tab bar
+    local closeBtn = CreateFrame("Button", nil, tabBarOverlay, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", tabBarOverlay, "TOPRIGHT", -2, 1)
+    closeBtn:SetSize(24, 24)
+
+    -- ---- Tab buttons (children of tabBarOverlay for Z-order) ----
+    frame.tabs = {}
+
+    -- Active tab
+    local activeTab = CreateFrame("Button", nil, tabBarOverlay)
+    activeTab:SetSize(85, TAB_BAR_HEIGHT - 2)
+    activeTab:SetPoint("LEFT", tabBarOverlay, "LEFT", 6, 0)
+    activeTab:EnableMouse(true)
+    activeTab:SetScript("OnClick", function() UI:SwitchTab("active") end)
+    activeTab:SetScript("OnEnter", function()
+        if currentTab ~= "active" then activeTab.hoverBg:Show() end
+    end)
+    activeTab:SetScript("OnLeave", function() activeTab.hoverBg:Hide() end)
+
+    -- Active tab indicator line (bottom)
+    local activeIndicator = ColorTexture(activeTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
+    activeIndicator:SetPoint("BOTTOMLEFT", activeTab, "BOTTOMLEFT", 0, 0)
+    activeIndicator:SetPoint("BOTTOMRIGHT", activeTab, "BOTTOMRIGHT", 0, 0)
+    activeIndicator:SetHeight(2)
+    activeTab.indicator = activeIndicator
+
+    -- Hover background
+    local activeHover = ColorTexture(activeTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    activeHover:SetAllPoints(activeTab)
+    activeHover:Hide()
+    activeTab.hoverBg = activeHover
+
+    local activeText = activeTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    activeText:SetPoint("CENTER", activeTab, "CENTER", 0, 0)
+    activeText:SetText("Active: 0")
+    activeTab.text = activeText
+
+    frame.tabs.active = activeTab
+
+    -- History tab
+    local historyTab = CreateFrame("Button", nil, tabBarOverlay)
+    historyTab:SetSize(75, TAB_BAR_HEIGHT - 2)
+    historyTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
+    historyTab:EnableMouse(true)
+    historyTab:SetScript("OnClick", function() UI:SwitchTab("history") end)
+    historyTab:SetScript("OnEnter", function()
+        if currentTab ~= "history" then historyTab.hoverBg:Show() end
+    end)
+    historyTab:SetScript("OnLeave", function() historyTab.hoverBg:Hide() end)
+
+    local historyIndicator = ColorTexture(historyTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
+    historyIndicator:SetPoint("BOTTOMLEFT", historyTab, "BOTTOMLEFT", 0, 0)
+    historyIndicator:SetPoint("BOTTOMRIGHT", historyTab, "BOTTOMRIGHT", 0, 0)
+    historyIndicator:SetHeight(2)
+    historyTab.indicator = historyIndicator
+
+    local historyHover = ColorTexture(historyTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    historyHover:SetAllPoints(historyTab)
+    historyHover:Hide()
+    historyTab.hoverBg = historyHover
+
+    local historyText = historyTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    historyText:SetPoint("CENTER", historyTab, "CENTER", 0, 0)
+    historyText:SetText("History")
+    historyTab.text = historyText
+
+    frame.tabs.history = historyTab
 
     -- ---- Dragging the frame ----
     frame:EnableMouse(true)
@@ -489,39 +498,64 @@ local function BuildActivePanel(content, rollData, yOffset)
         timerText:SetText(string.format("%d:%02d", mins, secs))
     end
 
-    -- -- Roll icon row
+    -- -- Roll icon row: icon + count + player names
     local rollIconRowY = timerRowY - timerBarH - 6
 
-    local rollCounts = { need = 0, greed = 0, disenchant = 0, pass = 0 }
-    for _, rt in pairs(rollData.rolls) do
-        local rType = GetRollInfo(rt)
-        if rollCounts[rType] then rollCounts[rType] = rollCounts[rType] + 1 end
+    -- Collect counts and player names per type
+    local rollDataByType = { need = {}, greed = {}, disenchant = {}, pass = {} }
+    for playerName, rollInfo in pairs(rollData.rolls) do
+        local rType = GetRollInfo(rollInfo)
+        if rollDataByType[rType] then
+            table.insert(rollDataByType[rType], playerName)
+        end
+    end
+    for _, rt in ipairs(ROLL_SECTIONS) do
+        table.sort(rollDataByType[rt])
     end
 
-    local rollIconX = PANEL_PADDING
+    local rollIconY = rollIconRowY
     for _, rt in ipairs(ROLL_SECTIONS) do
-        if rollCounts[rt] > 0 then
+        local players = rollDataByType[rt]
+        if #players > 0 then
+            -- Icon
             local rIcon = panel:CreateTexture(nil, "ARTWORK")
             rIcon:SetSize(ROLL_ICON_SIZE, ROLL_ICON_SIZE)
-            rIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", rollIconX, rollIconRowY)
+            rIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollIconY)
             rIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
-            rollIconX = rollIconX + ROLL_ICON_SIZE + 3
 
-            local rCount = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            rCount:SetPoint("LEFT", rIcon, "RIGHT", 1, 0)
-            rCount:SetText(tostring(rollCounts[rt]))
-            rCount:SetTextColor(0.7, 0.7, 0.7)
-            rollIconX = rollIconX + 14
+            -- Label: "Need (3): PlayerA, PlayerB, PlayerC"
+            local nameStr = table.concat(players, ", ")
+            local displayStr = string.format("%s (%d): %s", L.ROLL_LABELS[rt] or rt, #players, nameStr)
+
+            local secColor = rt == "need" and { 1.0, 0.35, 0.35 } or
+                             rt == "greed" and { 1.0, 0.85, 0.2 } or
+                             rt == "disenchant" and { 0.75, 0.5, 1.0 } or
+                             { 0.5, 0.5, 0.5 }
+
+            local rText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            rText:SetPoint("LEFT", rIcon, "RIGHT", 2, 0)
+            rText:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+            rText:SetJustifyH("LEFT")
+            rText:SetWordWrap(true)
+            rText:SetText(displayStr)
+            rText:SetTextColor(secColor[1], secColor[2], secColor[3])
+
+            -- Calculate height needed for word-wrapped text
+            local lineHeight = 10
+            local maxCharsPerLine = math.floor((panel:GetWidth() - PANEL_PADDING * 2 - ROLL_ICON_SIZE - 2) / 5)
+            local lineCount = math.max(1, math.ceil(#displayStr / maxCharsPerLine))
+            rollIconY = rollIconY - (lineCount * lineHeight + 2)
         end
     end
 
-    -- -- Roll sections
-    local sectionY = rollIconRowY - ROLL_ICON_SIZE - 8
+    -- -- Roll sections (expanded detail)
+    local sectionY = rollIconY - 4
 
     for _, sectionType in ipairs(ROLL_SECTIONS) do
         local players = {}
-        for playerName, rollType in pairs(rollData.rolls) do
-            if rollType == sectionType then
+        for playerName, rollInfo in pairs(rollData.rolls) do
+            local rType = GetRollInfo(rollInfo)
+            if rType == sectionType then
                 table.insert(players, playerName)
             end
         end
@@ -571,8 +605,9 @@ local function BuildActivePanel(content, rollData, yOffset)
         end
     end
 
-    -- Calculate total height
-    local totalH = PANEL_PADDING * 2 + headerH + 6 + timerBarH + 6 + ROLL_ICON_SIZE + (rollIconRowY - sectionY) + 4
+    -- Calculate total height from bottom-most element
+    -- sectionY is the lowest Y coordinate (negative, counting down from top)
+    local totalH = PANEL_PADDING * 2 - sectionY
     panel:SetHeight(totalH)
 
     -- Store for timer updates
@@ -624,8 +659,8 @@ local function BuildHistoryEntry(content, rollData, yOffset)
         for playerName, rollInfo in pairs(rollData.rolls) do
             local rType = GetRollInfo(rollInfo)
             if rType == rt then
-                if rType == "need" then winner = playerName; hasNeed = true; break
-                elseif rType == "greed" and winner == "" then winner = playerName end
+                if rt == "need" then winner = playerName; hasNeed = true; break
+                elseif rt == "greed" and winner == "" then winner = playerName end
             end
         end
         if hasNeed then break end
