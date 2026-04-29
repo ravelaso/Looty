@@ -30,11 +30,13 @@ L.ROLL_PATTERNS_OTHER = {
 
 -- Roll result messages — the main source of truth (type + value + item + player).
 L.ROLL_RESULT_PATTERNS = {
-    -- Your own result: "Greed Roll - 24 for [Veteran Gloves] by Buenclima"
+    -- Full format: "Greed Roll - 24 for [Item] by PlayerName"
     "^(.-) Roll %- (%d+) for%s*(.+) by (.+)$",
+    -- Without "by" (self result): "Greed Roll - 24 for [Item]"
+    "^(.-) Roll %- (%d+) for%s*(.+)$",
     -- Other players: "PlayerName rolls 85 (1-100) for [ItemName]"
     "^(.-) rolls (%d+) %(1%-100%) for%s*(.+)$",
-    -- No item reference (rare): "PlayerName rolls 85 (1-100)."
+    -- No item reference: "PlayerName rolls 85 (1-100)."
     "^(.-) rolls (%d+) %(1%-100%)%.$",
 }
 

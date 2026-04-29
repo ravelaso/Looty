@@ -164,9 +164,15 @@ function addon:RecordRoll(rollID, playerName, rollType, value)
         return false
     end
 
-    -- Don't overwrite existing rolls
-    if roll.rolls[playerName] then
-        return false
+    -- If player already has an entry, only overwrite if it has no value yet
+    -- (selection message arrived before roll result)
+    local existing = roll.rolls[playerName]
+    if existing then
+        local existingInfo = type(existing) == "table" and existing or { type = existing, value = nil }
+        if existingInfo.value then
+            return false -- already has a value, skip
+        end
+        -- No value yet — replace with full entry
     end
 
     roll.rolls[playerName] = { type = rollType, value = value or nil }

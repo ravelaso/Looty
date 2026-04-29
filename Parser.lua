@@ -36,9 +36,13 @@ end
 function Parser:ParseRollResult(message)
     for _, pattern in ipairs(L.ROLL_RESULT_PATTERNS) do
         local _, _, rollTypeRaw, valueStr, itemName, playerName = string.find(message, pattern)
-        if rollTypeRaw and valueStr and playerName then
+        if rollTypeRaw and valueStr then
             local rollType = ROLL_TYPE_MAP[rollTypeRaw]
             if rollType then
+                -- If no playerName captured (self-result without "by"), use unit name
+                if not playerName then
+                    playerName = UnitName("player")
+                end
                 return rollType, tonumber(valueStr), itemName, playerName
             end
         end
@@ -123,14 +127,12 @@ function Parser:ProcessMessage(message)
     local rawName, itemName, rollType = self:ParseMessageType(message)
     if itemName and rollType then
         if rawName == nil then
-            -- Self-selection: "You have selected Greed for: [Item]"
             local targetRollID = FindRollByItem(itemName)
             if targetRollID then
                 local myName = UnitName("player")
                 addon:RecordRoll(targetRollID, myName, rollType)
             end
         else
-            -- Pass messages or other selection without value
             local targetRollID = FindRollByItem(itemName)
             if targetRollID then
                 addon:RecordRoll(targetRollID, rawName, rollType)
@@ -139,12 +141,11 @@ function Parser:ProcessMessage(message)
         return
     end
 
-    -- 3. "You won: [ItemName]" — confirmation that you won the roll
+    -- 3. "You won: [ItemName]"
     local _, _, itemName = string.find(message, "^You won:%s*(.+)$")
     if itemName then
         local targetRollID = FindRollByItem(itemName)
         if targetRollID then
-            local myName = UnitName("player")
             local roll = addon:GetRoll(targetRollID)
             if roll then
                 roll.wonByMe = true
