@@ -105,7 +105,7 @@ function MasterLoot:OnLootMethodChanged()
             if MasterLoot.active then
                 LootyUI:SwitchTab("master")
             elseif LootyUI.currentTab == "master" then
-                LootyUI:SwitchTab("active")
+                LootyUI:SwitchTab("grouplot")
             end
         end
         if LootyUI and LootyUI.Refresh then
@@ -380,9 +380,10 @@ end
 
 function MasterLoot:GetDoneItems()
     local items = {}
-    for _, item in ipairs(MasterLoot.items) do
-        if item.isDone then
-            table.insert(items, item)
+    -- Iterate backwards so most recent done items appear first
+    for i = #self.items, 1, -1 do
+        if self.items[i].isDone then
+            table.insert(items, self.items[i])
         end
     end
     return items

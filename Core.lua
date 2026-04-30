@@ -128,9 +128,9 @@ function addon:START_LOOT_ROLL(event, rollID, duration)
     self:Print("New roll: " .. name)
     LootyUI:Refresh()
 
-    -- Auto-switch to Active tab so user sees new rolls
+    -- Auto-switch to GroupLoot tab so user sees new rolls
     if LootyUI.SwitchTab then
-        LootyUI:SwitchTab("active")
+        LootyUI:SwitchTab("grouplot")
     end
 
     -- Auto-show window if hidden

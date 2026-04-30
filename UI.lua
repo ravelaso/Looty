@@ -34,7 +34,7 @@ local QUALITY_COLORS = {
 local WHITE_TEX = "Interface\\Buttons\\WHITE8X8"
 
 local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
-local currentTab = "active"
+local currentTab = "grouplot"
 local expandedSections = {} -- rollID → sectionType (persists across refresh)
 
 -- Section colors: consistent across active and history
@@ -242,41 +242,41 @@ function UI:Create()
     -- ---- Tab buttons (children of tabBarOverlay for Z-order) ----
     frame.tabs = {}
 
-    -- Active tab
-    local activeTab = CreateFrame("Button", nil, tabBarOverlay)
-    activeTab:SetSize(85, TAB_BAR_HEIGHT - 2)
-    activeTab:SetPoint("LEFT", tabBarOverlay, "LEFT", 6, 0)
-    activeTab:EnableMouse(true)
-    activeTab:SetScript("OnClick", function() UI:SwitchTab("active") end)
-    activeTab:SetScript("OnEnter", function()
-        if currentTab ~= "active" then activeTab.hoverBg:Show() end
+    -- GroupLoot tab
+    local groupLootTab = CreateFrame("Button", nil, tabBarOverlay)
+    groupLootTab:SetSize(95, TAB_BAR_HEIGHT - 2)
+    groupLootTab:SetPoint("LEFT", tabBarOverlay, "LEFT", 6, 0)
+    groupLootTab:EnableMouse(true)
+    groupLootTab:SetScript("OnClick", function() UI:SwitchTab("grouplot") end)
+    groupLootTab:SetScript("OnEnter", function()
+        if currentTab ~= "grouplot" then groupLootTab.hoverBg:Show() end
     end)
-    activeTab:SetScript("OnLeave", function() activeTab.hoverBg:Hide() end)
+    groupLootTab:SetScript("OnLeave", function() groupLootTab.hoverBg:Hide() end)
 
-    -- Active tab indicator line (bottom)
-    local activeIndicator = ColorTexture(activeTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
-    activeIndicator:SetPoint("BOTTOMLEFT", activeTab, "BOTTOMLEFT", 0, 0)
-    activeIndicator:SetPoint("BOTTOMRIGHT", activeTab, "BOTTOMRIGHT", 0, 0)
-    activeIndicator:SetHeight(2)
-    activeTab.indicator = activeIndicator
+    -- GroupLoot tab indicator line (bottom)
+    local groupLootIndicator = ColorTexture(groupLootTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
+    groupLootIndicator:SetPoint("BOTTOMLEFT", groupLootTab, "BOTTOMLEFT", 0, 0)
+    groupLootIndicator:SetPoint("BOTTOMRIGHT", groupLootTab, "BOTTOMRIGHT", 0, 0)
+    groupLootIndicator:SetHeight(2)
+    groupLootTab.indicator = groupLootIndicator
 
     -- Hover background
-    local activeHover = ColorTexture(activeTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    activeHover:SetAllPoints(activeTab)
-    activeHover:Hide()
-    activeTab.hoverBg = activeHover
+    local groupLootHover = ColorTexture(groupLootTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    groupLootHover:SetAllPoints(groupLootTab)
+    groupLootHover:Hide()
+    groupLootTab.hoverBg = groupLootHover
 
-    local activeText = activeTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    activeText:SetPoint("CENTER", activeTab, "CENTER", 0, 0)
-    activeText:SetText("Active: 0")
-    activeTab.text = activeText
+    local groupLootText = groupLootTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    groupLootText:SetPoint("CENTER", groupLootTab, "CENTER", 0, 0)
+    groupLootText:SetText("Group: 0")
+    groupLootTab.text = groupLootText
 
-    frame.tabs.active = activeTab
+    frame.tabs.grouplot = groupLootTab
 
     -- Master Loot tab
     local masterTab = CreateFrame("Button", nil, tabBarOverlay)
-    masterTab:SetSize(80, TAB_BAR_HEIGHT - 2)
-    masterTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
+    masterTab:SetSize(85, TAB_BAR_HEIGHT - 2)
+    masterTab:SetPoint("LEFT", groupLootTab, "RIGHT", 0, 0)
     masterTab:EnableMouse(true)
     masterTab:SetScript("OnClick", function() UI:SwitchTab("master") end)
     masterTab:SetScript("OnEnter", function()
@@ -301,35 +301,6 @@ function UI:Create()
     masterTab.text = masterText
 
     frame.tabs.master = masterTab
-
-    -- History tab
-    local historyTab = CreateFrame("Button", nil, tabBarOverlay)
-    historyTab:SetSize(75, TAB_BAR_HEIGHT - 2)
-    historyTab:SetPoint("LEFT", masterTab, "RIGHT", 0, 0)
-    historyTab:EnableMouse(true)
-    historyTab:SetScript("OnClick", function() UI:SwitchTab("history") end)
-    historyTab:SetScript("OnEnter", function()
-        if currentTab ~= "history" then historyTab.hoverBg:Show() end
-    end)
-    historyTab:SetScript("OnLeave", function() historyTab.hoverBg:Hide() end)
-
-    local historyIndicator = ColorTexture(historyTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
-    historyIndicator:SetPoint("BOTTOMLEFT", historyTab, "BOTTOMLEFT", 0, 0)
-    historyIndicator:SetPoint("BOTTOMRIGHT", historyTab, "BOTTOMRIGHT", 0, 0)
-    historyIndicator:SetHeight(2)
-    historyTab.indicator = historyIndicator
-
-    local historyHover = ColorTexture(historyTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    historyHover:SetAllPoints(historyTab)
-    historyHover:Hide()
-    historyTab.hoverBg = historyHover
-
-    local historyText = historyTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    historyText:SetPoint("CENTER", historyTab, "CENTER", 0, 0)
-    historyText:SetText("History")
-    historyTab.text = historyText
-
-    frame.tabs.history = historyTab
 
     -- Close button (child of frame, NOT tabBarOverlay, so Hide() closes everything).
     -- Created AFTER tabs for correct Z-order on top.
@@ -390,7 +361,7 @@ function UI:Create()
     frame.elapsed = 0
 
     LootyFrame = frame
-    UI:SwitchTab("active")
+    UI:SwitchTab("grouplot")
     return frame
 end
 
@@ -431,29 +402,17 @@ function UI:SwitchTab(tab)
     local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
     local masterCountText = "Master: " .. mlCount
 
-    if tab == "active" then
-        frame.tabs.active.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
-        frame.tabs.active.text:SetTextColor(0.85, 0.85, 0.85)
+    if tab == "grouplot" then
+        frame.tabs.grouplot.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
+        frame.tabs.grouplot.text:SetTextColor(0.85, 0.85, 0.85)
         frame.tabs.master.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
         frame.tabs.master.text:SetTextColor(0.4, 0.4, 0.4)
         frame.tabs.master.text:SetText(masterCountText)
-        frame.tabs.history.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.history.text:SetTextColor(0.4, 0.4, 0.4)
     elseif tab == "master" then
-        frame.tabs.active.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.active.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.grouplot.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.grouplot.text:SetTextColor(0.4, 0.4, 0.4)
         frame.tabs.master.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
         frame.tabs.master.text:SetTextColor(0.85, 0.85, 0.85)
-        frame.tabs.history.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.history.text:SetTextColor(0.4, 0.4, 0.4)
-    else
-        frame.tabs.active.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.active.text:SetTextColor(0.4, 0.4, 0.4)
-        frame.tabs.master.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.master.text:SetTextColor(0.4, 0.4, 0.4)
-        frame.tabs.master.text:SetText(masterCountText)
-        frame.tabs.history.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
-        frame.tabs.history.text:SetTextColor(0.85, 0.85, 0.85)
     end
 
     -- Reset scroll position
@@ -531,18 +490,34 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     iconBorder:SetSize(iconH + 2, iconH + 2)
     iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 
-    -- Item name (full brightness always)
+    -- Item name (item link for hover tooltip + click)
     local name = panel:CreateFontString(nil, "OVERLAY", nameFont)
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
     name:SetJustifyH("LEFT")
     name:SetWordWrap(true)
-    local displayName = rollData.name
+    local displayName = rollData.link or rollData.name
     if rollData.count and rollData.count > 1 then
         displayName = displayName .. " (x" .. rollData.count .. ")"
     end
     name:SetText(displayName)
     name:SetTextColor(qColor.r, qColor.g, qColor.b)
+
+    -- Item tooltip + click link (on the panel, not the name — works on empty space too)
+    if rollData.link then
+        panel:EnableMouse(true)
+        panel:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(rollData.link)
+            GameTooltip:Show()
+        end)
+        panel:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        panel:SetScript("OnMouseUp", function(_, button)
+            SetItemRef(rollData.link, rollData.link, button)
+        end)
+    end
 
     -- -- Timer bar (active only, hidden for completed/history)
     local timerRowY = -PANEL_PADDING - iconH - 6
@@ -812,13 +787,11 @@ function UI:UpdateTabCounts()
 
     local activeCount = #addon:GetAllActiveRolls()
     local historyCount = #addon:GetCompletedRolls()
+    local totalGl = activeCount + historyCount
     local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
 
-    if frame.tabs.active and frame.tabs.active.text then
-        frame.tabs.active.text:SetText("Active: " .. activeCount)
-    end
-    if frame.tabs.history and frame.tabs.history.text then
-        frame.tabs.history.text:SetText("History (" .. historyCount .. ")")
+    if frame.tabs.grouplot and frame.tabs.grouplot.text then
+        frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
     end
     if frame.tabs.master and frame.tabs.master.text then
         frame.tabs.master.text:SetText("Master: " .. mlCount)
@@ -868,19 +841,35 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
     iconBorder:SetSize(iconH + 2, iconH + 2)
     iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 
-    -- Item name
+    -- Item name (item link for hover tooltip + click)
     local name = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
     name:SetJustifyH("LEFT")
     name:SetWordWrap(true)
-    local displayName = item.name
+    local displayName = item.link or item.name
     if item.quantity and item.quantity > 1 then
         displayName = displayName .. " (x" .. item.quantity .. ")"
     end
     name:SetText(displayName)
     name:SetTextColor(qColor.r * alpha, qColor.g * alpha, qColor.b * alpha)
     name:SetAlpha(alpha)
+
+    -- Item tooltip + click link (on the panel)
+    if item.link then
+        panel:EnableMouse(true)
+        panel:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(item.link)
+            GameTooltip:Show()
+        end)
+        panel:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        panel:SetScript("OnMouseUp", function(_, button)
+            SetItemRef(item.link, item.link, button)
+        end)
+    end
 
     local rollY = -PANEL_PADDING - iconH - 4
 
@@ -1094,39 +1083,67 @@ function UI:Refresh()
 
     local yOffset = -CONTENT_MARGIN
 
-    if currentTab == "active" then
+    if currentTab == "grouplot" then
+        -- Active rolls at top
         local activeRolls = addon:GetAllActiveRolls()
         for i, rollData in ipairs(activeRolls) do
             local panel, panelH = BuildRollPanel(content, rollData, yOffset, { isHistory = false })
             yOffset = yOffset - panelH - 6
         end
 
-        if #activeRolls == 0 then
-            local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            empty:SetPoint("TOP", content, "TOP", 0, -40)
-            empty:SetText("No active rolls")
-            empty:SetTextColor(0.35, 0.35, 0.35)
-            yOffset = yOffset - 50
-        end
-
-        frame.tabs.active.text:SetText("Active: " .. #activeRolls)
-
-    elseif currentTab == "history" then
+        -- Separator + completed rolls below
         local completedRolls = addon:GetCompletedRolls()
-        for i, rollData in ipairs(completedRolls) do
-            local entry, entryH = BuildRollPanel(content, rollData, yOffset, { isHistory = true })
-            yOffset = yOffset - entryH - 4
+        if #completedRolls > 0 then
+            local sepY = yOffset - 10
+            local sep = ColorTexture(content, "BORDER", 0.25, 0.25, 0.25, 0.4)
+            sep:SetPoint("TOPLEFT", content, "TOPLEFT", 4, sepY)
+            sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, sepY)
+            sep:SetHeight(1)
+            yOffset = sepY - 22
+
+            -- Clear History button (at the TOP of completed section)
+            local clearBtn = CreateFrame("Button", nil, content)
+            clearBtn:SetSize(80, 20)
+            clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
+            local clearBg = ColorTexture(clearBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.8)
+            clearBg:SetAllPoints(clearBtn)
+            local clearText = clearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            clearText:SetPoint("CENTER", clearBtn, "CENTER", 0, 0)
+            clearText:SetText("Clear History")
+            clearText:SetTextColor(0.6, 0.6, 0.6)
+            clearBtn:SetScript("OnEnter", function() clearBg:SetVertexColor(0.25, 0.25, 0.25, 0.8) end)
+            clearBtn:SetScript("OnLeave", function() clearBg:SetVertexColor(0.15, 0.15, 0.15, 0.8) end)
+            clearBtn:SetScript("OnClick", function()
+                addon.completedRolls = {}
+                addon:Print("Roll history cleared.")
+                UI:Refresh()
+            end)
+            yOffset = yOffset - 24
+
+            local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
+            doneLabel:SetText("Completed (" .. #completedRolls .. ")")
+            doneLabel:SetTextColor(0.4, 0.4, 0.4)
+            yOffset = yOffset - 16
+
+            for i, rollData in ipairs(completedRolls) do
+                local entry, entryH = BuildRollPanel(content, rollData, yOffset, { isHistory = true })
+                yOffset = yOffset - entryH - 4
+            end
         end
 
-        if #completedRolls == 0 then
+        -- Empty state
+        if #activeRolls == 0 and #completedRolls == 0 then
             local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             empty:SetPoint("TOP", content, "TOP", 0, -40)
-            empty:SetText("No completed rolls yet")
+            empty:SetText("No rolls yet")
             empty:SetTextColor(0.35, 0.35, 0.35)
             yOffset = yOffset - 50
         end
 
-        frame.tabs.history.text:SetText("History (" .. #completedRolls .. ")")
+        -- Update group tab count
+        local totalGl = #activeRolls + #completedRolls
+        frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
 
     elseif currentTab == "master" then
         local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
@@ -1148,20 +1165,9 @@ function UI:Refresh()
                 sep:SetPoint("TOPLEFT", content, "TOPLEFT", 4, sepY)
                 sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, sepY)
                 sep:SetHeight(1)
-                yOffset = sepY - 16
+                yOffset = sepY - 22
 
-                local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
-                doneLabel:SetText("Done (" .. #doneItems .. ")")
-                doneLabel:SetTextColor(0.4, 0.4, 0.4)
-                yOffset = yOffset - 16
-
-                for i, item in ipairs(doneItems) do
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true })
-                    yOffset = yOffset - panelH - 4
-                end
-
-                -- Clear Done button
+                -- Clear Done button (at the TOP of done section)
                 local clearBtn = CreateFrame("Button", nil, content)
                 clearBtn:SetSize(80, 20)
                 clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
@@ -1176,7 +1182,18 @@ function UI:Refresh()
                 clearBtn:SetScript("OnClick", function()
                     LootyMasterLoot:ClearDone()
                 end)
-                yOffset = yOffset - 30
+                yOffset = yOffset - 24
+
+                local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
+                doneLabel:SetText("Done (" .. #doneItems .. ")")
+                doneLabel:SetTextColor(0.4, 0.4, 0.4)
+                yOffset = yOffset - 16
+
+                for i, item in ipairs(doneItems) do
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true })
+                    yOffset = yOffset - panelH - 4
+                end
             end
         end
 
@@ -1223,7 +1240,7 @@ end
 function UI:UpdateTimers()
     local frame = LootyFrame
     if not frame or not frame:IsShown() then return end
-    if currentTab ~= "active" then return end
+    if currentTab ~= "grouplot" then return end
 
     local content = frame.content
     for _, child in ipairs({ content:GetChildren() }) do
