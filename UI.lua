@@ -776,6 +776,12 @@ function UI:UpdateTabCounts()
     end
 end
 
+-- ---- Clear accordion expanded state for a rollID (called when roll moves to history) ----
+
+function UI:ClearExpandedState(rollID)
+    expandedSections[rollID] = nil
+end
+
 -- ---- Refresh the entire UI ----
 
 function UI:Refresh()

@@ -167,18 +167,35 @@ function Parser:ProcessMessage(message)
         return
     end
 
-    -- 3. "You won: [ItemName]"
+    -- 3. "You won: [ItemName]" — mark winner and move to history
     local _, _, itemName = string.find(message, "^You won:%s*(.+)$")
     if itemName then
         if addon and addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r WON match: " .. tostring(itemName))
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r WON match (self): " .. tostring(itemName))
         end
         local targetRollID = FindRollByItem(itemName)
         if targetRollID then
             local roll = addon:GetRoll(targetRollID)
             if roll then
                 roll.wonByMe = true
-                LootyUI:Refresh()
+                addon:FinalizeRoll(targetRollID)
+            end
+        end
+        return
+    end
+
+    -- 4. "X won: [ItemName]" — mark winner and move to history
+    local _, _, winnerName, itemName = string.find(message, "^(.-) won:%s*(.+)$")
+    if winnerName and itemName then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r WON match (other): " .. winnerName .. " -> " .. tostring(itemName))
+        end
+        local targetRollID = FindRollByItem(itemName)
+        if targetRollID then
+            local roll = addon:GetRoll(targetRollID)
+            if roll then
+                roll.winner = winnerName
+                addon:FinalizeRoll(targetRollID)
             end
         end
         return

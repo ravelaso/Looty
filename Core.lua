@@ -117,6 +117,11 @@ function addon:START_LOOT_ROLL(event, rollID, duration)
     self:Print("New roll: " .. name)
     LootyUI:Refresh()
 
+    -- Auto-switch to Active tab so user sees new rolls
+    if LootyUI.SwitchTab then
+        LootyUI:SwitchTab("active")
+    end
+
     -- Auto-show window if hidden
     if LootyFrame and not LootyFrame:IsShown() then
         LootyFrame:Show()
@@ -125,11 +130,28 @@ end
 
 function addon:CANCEL_LOOT_ROLL(event, rollID)
     if self.activeRolls[rollID] then
-        -- Move directly to history (completed rolls are always shown in history tab)
-        table.insert(self.completedRolls, 1, self.activeRolls[rollID])
-        self.activeRolls[rollID] = nil
+        -- Mark as completed but KEEP in activeRolls until we parse the
+        -- "X won: [Item]" message. This keeps the roll visible in the
+        -- Active tab so users can see results immediately after voting.
+        self.activeRolls[rollID].completed = true
         LootyUI:Refresh()
     end
+end
+
+-- Move a roll from activeRolls to completedRolls (called after "won" is parsed)
+function addon:FinalizeRoll(rollID)
+    local roll = self.activeRolls[rollID]
+    if not roll then return end
+
+    -- Clean up accordion state for this roll
+    if LootyUI and LootyUI.ClearExpandedState then
+        LootyUI:ClearExpandedState(rollID)
+    end
+
+    table.insert(self.completedRolls, 1, roll)
+    self.activeRolls[rollID] = nil
+    LootyUI:Refresh()
+    LootyUI:UpdateTabCounts()
 end
 
 function addon:CHAT_MSG_LOOT(event, message)
