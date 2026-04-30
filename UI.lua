@@ -834,7 +834,7 @@ end
 -- ---- Build Master Loot item panel ----
 -- opts: { isDone: bool }
 
-local function BuildMasterItemPanel(content, item, itemIndex, opts)
+local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
     opts = opts or {}
     local isDone = opts.isDone or false
     local alpha = isDone and 0.5 or 1.0
@@ -937,7 +937,7 @@ local function BuildMasterItemPanel(content, item, itemIndex, opts)
         timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, rollY - 2)
         timerText:SetJustifyH("RIGHT")
-        local remaining = MasterLoot.rollDuration - (GetTime() - item.rollStart)
+        local remaining = LootyMasterLoot.rollDuration - (GetTime() - item.rollStart)
         remaining = math.max(0, remaining)
         timerText:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
         rollY = rollY - timerBarH - 4
@@ -1133,7 +1133,7 @@ function UI:Refresh()
         if mlCount > 0 and LootyMasterLoot then
             for i, item in ipairs(LootyMasterLoot.items) do
                 if not item.isDone then
-                    local panel, panelH = BuildMasterItemPanel(content, item, i)
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset)
                     yOffset = yOffset - panelH - 4
                 end
             end
@@ -1157,7 +1157,7 @@ function UI:Refresh()
                 yOffset = yOffset - 16
 
                 for i, item in ipairs(doneItems) do
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, { isDone = true })
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true })
                     yOffset = yOffset - panelH - 4
                 end
 

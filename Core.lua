@@ -61,6 +61,11 @@ function addon:PLAYER_LOGIN()
     -- Create the UI window
     LootyUI:Create()
 
+    -- Initialize Master Loot state (detect if already in ML mode at login)
+    if LootyMasterLoot then
+        LootyMasterLoot:Initialize()
+    end
+
     -- Restore window position and size from saved vars
     if self.db.windowPos.x and self.db.windowPos.y then
         LootyFrame:SetPoint(

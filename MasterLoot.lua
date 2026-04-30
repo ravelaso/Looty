@@ -19,26 +19,75 @@ MasterLoot.isML = false         -- Is current player the Master Looter?
 -- ---- Helper: check if player is Master Looter ----
 
 local function CheckIsML()
-    local method, _, mlName = GetLootMethod()
-    if method == "master" then
-        MasterLoot.isML = (mlName == UnitName("player"))
-    else
+    local method, masterlooterPartyID, masterlooterRaidID = GetLootMethod()
+    if method ~= "master" then
         MasterLoot.isML = false
+        return false
     end
-    return MasterLoot.isML
+
+    -- In WOTLK 3.3.5, GetLootMethod() returns NUMBERS for ML identity,
+    -- NOT names:
+    --   masterlooterPartyID = 0 means THIS PLAYER is ML
+    --   masterlooterPartyID = 1-4 means party member 1-4 is ML
+    --   masterlooterRaidID = raid index or nil
+    if masterlooterPartyID == 0 then
+        MasterLoot.isML = true
+        return true
+    end
+
+    -- In a raid, check if raid index matches our own
+    if masterlooterRaidID and UnitIsRaidMember("player") then
+        for i = 1, GetNumGroupMembers() do
+            if UnitName("raid" .. i) == UnitName("player") then
+                MasterLoot.isML = (masterlooterRaidID == i)
+                return MasterLoot.isML
+            end
+        end
+    end
+
+    -- Fallback: party member is ML (not us)
+    MasterLoot.isML = false
+    return false
+end
+
+-- ---- Initialize: called on PLAYER_LOGIN to set initial state ----
+
+function MasterLoot:Initialize()
+    -- Check if we're already in Master Loot mode at login
+    -- (PARTY_LOOT_METHOD_CHANGED may not have fired since login)
+    local method, partyID, raidID = GetLootMethod()
+    if method == "master" then
+        MasterLoot.active = true
+        CheckIsML()
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cff00ff00[LOOTY ML]|r ML at login: method=%s partyID=%s raidID=%s isML=%s",
+                tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML)))
+        end
+    else
+        MasterLoot.active = false
+        MasterLoot.isML = false
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cff00ff00[LOOTY ML]|r Not ML at login: method=%s partyID=%s raidID=%s",
+                tostring(method), tostring(partyID), tostring(raidID)))
+        end
+    end
 end
 
 -- ---- Event: PARTY_LOOT_METHOD_CHANGED ----
 
 function MasterLoot:OnLootMethodChanged()
-    local method = GetLootMethod()
+    local method, partyID, raidID = GetLootMethod()
     local wasActive = MasterLoot.active
 
     if method == "master" then
         MasterLoot.active = true
         CheckIsML()
         if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Master Loot mode activated. isML=" .. tostring(MasterLoot.isML))
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cff00ff00[LOOTY ML]|r Master Loot activated: method=%s partyID=%s raidID=%s isML=%s",
+                tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML)))
         end
     else
         MasterLoot.active = false
@@ -70,32 +119,45 @@ end
 function MasterLoot:OnLootOpened()
     if not MasterLoot.active then return end
 
+    -- Re-verify ML status every time loot opens (it can change between sessions
+    -- and PARTY_LOOT_METHOD_CHANGED may not have fired since login).
+    CheckIsML()
+
+    -- Debug: log current ML state
+    if addon.db and addon.db.debug then
+        local method, partyID, raidID = GetLootMethod()
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ML]|r OnLootOpened: method=%s partyID=%s raidID=%s isML=%s items=%d",
+            tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML), #MasterLoot.items))
+    end
+
     -- Read items from the loot window
     local numItems = GetNumLootItems()
     if numItems == 0 then return end
 
     MasterLoot.items = {}
     for i = 1, numItems do
-        local slotType = GetLootSlotType(i)
-        if slotType == "item" then
-            local texture, name, quantity, quality, bindable = GetLootSlotInfo(i)
-            local link = GetLootSlotLink(i)
-            if name then
-                table.insert(MasterLoot.items, {
-                    slot = i,
-                    name = name,
-                    link = link,
-                    texture = texture,
-                    quantity = quantity or 1,
-                    quality = quality or 2,
-                    rolls = {},
-                    rerolls = {},
-                    rolling = false,
-                    rollStart = nil,
-                    isDone = false,
-                    winner = nil,
-                })
-            end
+        local texture, name, quantity, quality, locked, isQuestItem, questId, isActive = GetLootSlotInfo(i)
+
+        -- WOTLK 3.3.5 does NOT have GetLootSlotType (added in 5.0.4/1.13.2).
+        -- Filter out money/coin slots: they return a coin string as name and
+        -- have no item link. Real items always return a valid link.
+        local link = GetLootSlotLink(i)
+        if name and link then
+            table.insert(MasterLoot.items, {
+                slot = i,
+                name = name,
+                link = link,
+                texture = texture,
+                quantity = quantity or 1,
+                quality = quality or 2,
+                rolls = {},
+                rerolls = {},
+                rolling = false,
+                rollStart = nil,
+                isDone = false,
+                winner = nil,
+            })
         end
     end
 
