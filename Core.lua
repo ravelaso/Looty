@@ -419,12 +419,4 @@ function addon:InjectTestRolls()
     LootyUI:Refresh()
 end
 
-    -- Auto-show window
-    if LootyFrame and not LootyFrame:IsShown() then
-        LootyFrame:Show()
-    end
-
-    LootyUI:Refresh()
-end
-
 addon:RegisterEvent("PLAYER_LOGIN")
