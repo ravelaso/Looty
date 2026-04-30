@@ -510,7 +510,8 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         rollY = rollY - lineH - 2
     end
 
-    -- -- Roll rows: [icon] PlayerA(87), PlayerB(42)
+    -- ---- Accordion tabs + player list ----
+    -- Group rolls by type
     local rollsByType = { need = {}, greed = {}, disenchant = {}, pass = {} }
     for playerName, rollInfo in pairs(rollData.rolls) do
         local rType = GetRollInfo(rollInfo)
@@ -528,47 +529,194 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         end)
     end
 
-    for _, rt in ipairs(ROLL_SECTIONS) do
-        local entries = rollsByType[rt]
-        if #entries > 0 then
+    -- Track expanded section: default to winner's type
+    -- If winner is nil or has no entries, all closed
+    local defaultExpanded = winType
+    if defaultExpanded and #rollsByType[defaultExpanded] == 0 then
+        defaultExpanded = nil
+    end
+
+    -- Accordion constants
+    local ACC_TAB_HEIGHT = 20
+    local ACC_TAB_GAP = 4
+
+    -- Accordion tab bar row
+    local tabBarY = rollY
+    local tabBarBg = ColorTexture(panel, "BACKGROUND", 0.08, 0.08, 0.08, 0.5)
+    tabBarBg:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, tabBarY)
+    tabBarBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, tabBarY)
+    tabBarBg:SetHeight(ACC_TAB_HEIGHT)
+
+    local tabSep = ColorTexture(panel, "BORDER", 0.18, 0.18, 0.18, 0.4)
+    tabSep:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, tabBarY - ACC_TAB_HEIGHT)
+    tabSep:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, tabBarY - ACC_TAB_HEIGHT)
+    tabSep:SetHeight(1)
+
+    -- Create tab buttons
+    local tabWidth = (contentWidth - ACC_TAB_GAP * 2) / 4
+    local accordionTabs = {}
+    for i, rt in ipairs(ROLL_SECTIONS) do
+        local count = #rollsByType[rt]
+        if count > 0 or rt ~= "pass" then  -- Always show non-pass, show pass only if has entries
+            local tab = CreateFrame("Button", nil, panel)
+            local tabX = ACC_TAB_GAP + (i - 1) * tabWidth
+            tab:SetSize(tabWidth - ACC_TAB_GAP, ACC_TAB_HEIGHT - 2)
+            tab:SetPoint("TOPLEFT", panel, "TOPLEFT", tabX, tabBarY - 1)
+            tab:EnableMouse(true)
+
+            -- Tab background (dark by default)
+            local tabBg = ColorTexture(tab, "BACKGROUND", 0.08, 0.08, 0.08, 0.0)
+            tabBg:SetAllPoints(tab)
+            tab.tabBg = tabBg
+
             -- Icon
-            local rIcon = panel:CreateTexture(nil, "ARTWORK")
-            rIcon:SetSize(ROLL_ICON_SIZE, ROLL_ICON_SIZE)
-            rIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
-            rIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
+            local tIcon = tab:CreateTexture(nil, "ARTWORK")
+            tIcon:SetSize(14, 14)
+            tIcon:SetPoint("LEFT", tab, "LEFT", 3, 0)
+            tIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
             if isHistory then
-                rIcon:SetDesaturated(true)
-                rIcon:SetAlpha(rollIconA)
+                tIcon:SetDesaturated(true)
+                tIcon:SetAlpha(rollIconA)
             end
 
-            -- Build player list
-            local parts = {}
-            for _, entry in ipairs(entries) do
-                parts[#parts + 1] = entry.value and (entry.name .. "(" .. entry.value .. ")") or entry.name
-            end
+            -- Count text
+            local tText = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            tText:SetPoint("LEFT", tIcon, "RIGHT", 3, 0)
+            tText:SetText(count)
 
-            local textColor = rollColor or (rt == "need" and { 1.0, 0.35, 0.35 } or
+            -- Color by type
+            local tabColor = rt == "need" and { 1.0, 0.35, 0.35 } or
                              rt == "greed" and { 1.0, 0.85, 0.2 } or
                              rt == "disenchant" and { 0.75, 0.5, 1.0 } or
-                             { 0.5, 0.5, 0.5 })
+                             { 0.5, 0.5, 0.5 }
+            tText:SetTextColor(tabColor[1], tabColor[2], tabColor[3])
 
-            local rText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            rText:SetPoint("LEFT", rIcon, "RIGHT", 2, 0)
-            rText:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
-            rText:SetJustifyH("LEFT")
-            rText:SetWordWrap(true)
-            rText:SetText(table.concat(parts, ", "))
-            rText:SetTextColor(textColor[1], textColor[2], textColor[3])
-
-            -- Height for word-wrap
-            local maxCharsPerLine = math.max(1, math.floor((panel:GetWidth() - PANEL_PADDING * 2 - ROLL_ICON_SIZE - 2) / 5))
-            local textStr = table.concat(parts, ", ")
-            local lineCount = math.max(1, math.ceil(#textStr / maxCharsPerLine))
-            rollY = rollY - (lineCount * lineH + 2)
+            accordionTabs[rt] = tab
         end
     end
 
-    -- Separator line (history only)
+    -- Expanded section (player list) — created as a subframe for toggle
+    local sectionFrame = CreateFrame("Frame", nil, panel)
+    sectionFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, tabBarY - ACC_TAB_HEIGHT)
+    sectionFrame:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, tabBarY - ACC_TAB_HEIGHT)
+    sectionFrame:Hide()
+    panel._accordionSection = sectionFrame
+    panel._accordionTabs = accordionTabs
+    panel._rollsByType = rollsByType
+
+    -- Helper: build player list for a section
+    local function buildPlayerList(sectionType)
+        local entries = rollsByType[sectionType]
+        local sectionColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
+                             sectionType == "greed" and { 1.0, 0.85, 0.2 } or
+                             sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
+                             { 0.5, 0.5, 0.5 }
+
+        -- Clear previous
+        for _, child in ipairs({ sectionFrame:GetChildren() }) do
+            child:Hide(); child:ClearAllPoints()
+        end
+        for _, child in ipairs({ sectionFrame:GetRegions() }) do
+            child:Hide()
+        end
+
+        ColorTexture(sectionFrame, "BACKGROUND", 0.06, 0.06, 0.06, 0.5):SetAllPoints(sectionFrame)
+
+        local listY = -4
+        local playerRowH = 16
+        for _, entry in ipairs(entries) do
+            local isWinner = (entry.name == winnerPlayer)
+            local rowBg = ColorTexture(sectionFrame, "BACKGROUND",
+                isWinner and 0.6 or 0.12,
+                isWinner and 0.5 or 0.12,
+                isWinner and 0.0 or 0.12,
+                isWinner and 0.25 or 0.0)
+            rowBg:SetPoint("TOPLEFT", sectionFrame, "TOPLEFT", 0, listY)
+            rowBg:SetPoint("TOPRIGHT", sectionFrame, "TOPRIGHT", 0, listY)
+            rowBg:SetHeight(playerRowH)
+
+            local pIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
+            pIcon:SetSize(14, 14)
+            pIcon:SetPoint("LEFT", sectionFrame, "LEFT", 8, 0)
+            pIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
+            pIcon:SetTexture(L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass)
+            if isHistory then
+                pIcon:SetDesaturated(true)
+                pIcon:SetAlpha(rollIconA)
+            end
+
+            local pName = sectionFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pName:SetPoint("LEFT", pIcon, "RIGHT", 4, 0)
+            pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
+            pName:SetTextColor(
+                isWinner and 1.0 or sectionColor[1],
+                isWinner and 0.9 or sectionColor[2],
+                isWinner and 0.3 or sectionColor[3]
+            )
+            listY = listY - playerRowH - 1
+        end
+
+        local sectionH = -listY + 4
+        sectionFrame:SetHeight(sectionH)
+        return sectionH
+    end
+
+    -- Helper: highlight active tab
+    local function highlightTab(sectionType)
+        local secColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
+                         sectionType == "greed" and { 1.0, 0.85, 0.2 } or
+                         sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
+                         { 0.5, 0.5, 0.5 }
+        for rt, tab in pairs(accordionTabs) do
+            if rt == sectionType then
+                tab.tabBg:SetVertexColor(secColor[1] * 0.15, secColor[2] * 0.15, secColor[3] * 0.15, 0.8)
+            else
+                tab.tabBg:SetVertexColor(0.08, 0.08, 0.08, 0.0)
+            end
+        end
+    end
+
+    -- Click handlers
+    local function toggleSection(sectionType)
+        local isCurrentlyExpanded = sectionFrame:IsShown() and panel._expandedType == sectionType
+        if isCurrentlyExpanded then
+            sectionFrame:Hide()
+            panel._expandedType = nil
+            for _, tab in pairs(accordionTabs) do
+                tab.tabBg:SetVertexColor(0.08, 0.08, 0.08, 0.0)
+            end
+        else
+            panel._expandedType = sectionType
+            buildPlayerList(sectionType)
+            sectionFrame:Show()
+            highlightTab(sectionType)
+        end
+        UI:Refresh()
+    end
+
+    for rt, tab in pairs(accordionTabs) do
+        tab:SetScript("OnClick", function() toggleSection(rt) end)
+        tab:SetScript("OnEnter", function()
+            if panel._expandedType ~= rt then
+                tab.tabBg:SetVertexColor(0.15, 0.15, 0.15, 0.5)
+            end
+        end)
+        tab:SetScript("OnLeave", function()
+            if panel._expandedType ~= rt then
+                tab.tabBg:SetVertexColor(0.08, 0.08, 0.08, 0.0)
+            end
+        end)
+    end
+
+    -- Auto-expand winner section
+    if defaultExpanded then
+        panel._expandedType = defaultExpanded
+        buildPlayerList(defaultExpanded)
+        sectionFrame:Show()
+        highlightTab(defaultExpanded)
+    end
+
+    -- -- Separator line (history only)
     if isHistory then
         local sep = ColorTexture(panel, "BORDER", 0.15, 0.15, 0.15, 0.3)
         sep:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PANEL_PADDING, 0)
@@ -576,8 +724,12 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         sep:SetHeight(1)
     end
 
-    -- Calculate total height
-    local totalH = PANEL_PADDING * 2 - rollY
+    -- Calculate total height: header + winner + accordion bar + expanded section + padding
+    local expandedH = sectionFrame:IsShown() and sectionFrame:GetHeight() or 0
+    local totalH = PANEL_PADDING * 2 + iconH + 6 + lineH + 2 + ACC_TAB_HEIGHT + expandedH
+    if isHistory then
+        totalH = totalH + 1 -- separator
+    end
     panel:SetHeight(totalH)
 
     -- Store for timer updates (active panels only)
