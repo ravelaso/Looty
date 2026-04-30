@@ -290,76 +290,153 @@ function addon:InjectTestRolls()
 
     local now = GetTime()
 
-    -- Active roll 1: Epic item with mixed rolls (timer shows ~1:30)
+    -- ============================================================
+    -- Active roll: Epic chest (raid scenario, many players rolling)
+    -- ============================================================
     self.activeRolls[9001] = {
         rollID = 9001,
         name = "Vestments of the Devout",
-        link = "|cffa335ee|Hitem:12345:0:0:0:0:0:0:0:0|h[Vestments of the Devout]|h|r",
+        link = "|cffa335ee|Hitem:21345:0:0:0:0:0:0:0:0|h[Vestments of the Devout]|h|r",
         texture = "Interface\\Icons\\INV_Chest_Cloth_04",
         count = 1,
         quality = 4, -- Epic
         startTime = now,
         duration = 90,
         rolls = {
-            Buenclima = { type = "greed", value = 24 },
-            PlayerA   = { type = "need",  value = 87 },
-            PlayerB   = { type = "need",  value = 42 },
-            PlayerC   = { type = "greed", value = 91 },
-            PlayerD   = { type = "pass" },
-            PlayerE   = { type = "greed", value = 15 },
+            -- Need
+            Buenclima  = { type = "need",  value = 87 },
+            ShadowMaw  = { type = "need",  value = 42 },
+            HealMePlz  = { type = "need",  value = 63 },
+            -- Greed
+            TankJoe    = { type = "greed", value = 91 },
+            DPSKing    = { type = "greed", value = 55 },
+            AltRoller  = { type = "greed", value = 33 },
+            -- Pass
+            WarriorK   = { type = "pass" },
+            MageBob    = { type = "pass" },
+            LockDash   = { type = "pass" },
+            RogueX     = { type = "pass" },
+            HunterAim  = { type = "pass" },
         },
     }
 
-    -- Active roll 2: Rare item, fewer players (timer shows ~1:30)
+    -- ============================================================
+    -- Active roll: Rare weapon (fewer eligible players)
+    -- ============================================================
     self.activeRolls[9002] = {
         rollID = 9002,
         name = "Blessed Claymore",
-        link = "|cff0070dd|Hitem:67890:0:0:0:0:0:0:0:0|h[Blessed Claymore]|h|r",
+        link = "|cff0070dd|Hitem:16890:0:0:0:0:0:0:0:0|h[Blessed Claymore]|h|r",
         texture = "Interface\\Icons\\INV_Sword_25",
         count = 1,
         quality = 3, -- Rare
-        startTime = now,
+        startTime = now + 5,
         duration = 90,
         rolls = {
-            Buenclima = { type = "need", value = 55 },
-            TankJoe   = { type = "need", value = 63 },
+            TankJoe   = { type = "need",  value = 74 },
+            Buenclima = { type = "greed", value = 48 },
+            DPSKing   = { type = "greed", value = 22 },
+            WarriorK  = { type = "need",  value = 66 },
         },
     }
 
-    -- History entries (completed rolls)
-    table.insert(self.completedRolls, {
-        rollID = 8001,
-        name = "Staff of the Ancients",
-        link = "|cffa335ee|Hitem:11111:0:0:0:0:0:0:0:0|h[Staff of the Ancients]|h|r",
-        texture = "Interface\\Icons\\INV_Staff_08",
+    -- ============================================================
+    -- Active roll: Epic ring (high demand)
+    -- ============================================================
+    self.activeRolls[9003] = {
+        rollID = 9003,
+        name = "Band of Forced Concentration",
+        link = "|cffa335ee|Hitem:22734:0:0:0:0:0:0:0:0|h[Band of Forced Concentration]|h|r",
+        texture = "Interface\\Icons\\INV_Jewelry_Ring_15",
         count = 1,
         quality = 4, -- Epic
+        startTime = now + 10,
+        duration = 90,
+        rolls = {
+            -- Need (all casters/healers)
+            HealMePlz   = { type = "need",  value = 95 },
+            ShadowMaw   = { type = "need",  value = 34 },
+            MageBob     = { type = "need",  value = 78 },
+            LockDash    = { type = "need",  value = 67 },
+            -- Greed (everyone else hoping)
+            TankJoe     = { type = "greed", value = 82 },
+            WarriorK    = { type = "greed", value = 44 },
+            DPSKing     = { type = "greed", value = 19 },
+            RogueX      = { type = "greed", value = 71 },
+            -- Disenchant
+            AltRoller   = { type = "disenchant", value = 50 },
+        },
+    }
+
+    -- ============================================================
+    -- Completed rolls (history)
+    -- ============================================================
+
+    -- Epic weapon
+    table.insert(self.completedRolls, {
+        rollID = 8001,
+        name = "Spinal Crusher",
+        link = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
+        texture = "Interface\\Icons\\INV_Mace_36",
+        count = 1,
+        quality = 4, -- Epic
+        startTime = now - 120,
+        duration = 90,
+        rolls = {
+            TankJoe    = { type = "need",  value = 55 },
+            WarriorK   = { type = "need",  value = 73 },
+            Buenclima  = { type = "greed", value = 88 },
+            DPSKing    = { type = "greed", value = 41 },
+            ShadowMaw  = { type = "disenchant", value = 30 },
+            AltRoller  = { type = "disenchant", value = 62 },
+            RogueX     = { type = "pass" },
+            MageBob    = { type = "pass" },
+            LockDash   = { type = "pass" },
+            HealMePlz  = { type = "pass" },
+        },
+    })
+
+    -- Rare armor
+    table.insert(self.completedRolls, {
+        rollID = 8002,
+        name = "Pioneer Trousers of the Monkey",
+        link = "|cff1eff00|Hitem:22222:0:0:0:0:0:0:0:0|h[Pioneer Trousers of the Monkey]|h|r",
+        texture = "Interface\\Icons\\INV_Pants_06",
+        count = 1,
+        quality = 2, -- Uncommon
         startTime = now - 300,
         duration = 90,
         rolls = {
-            HealerX   = { type = "need",     value = 76 },
-            Buenclima = { type = "disenchant", value = 44 },
-            MageBob   = { type = "pass" },
+            Buenclima = { type = "greed", value = 88 },
+            RogueX    = { type = "greed", value = 33 },
+            HunterAim = { type = "need",  value = 76 },
+            TankJoe   = { type = "pass" },
         },
     })
 
+    -- Epic trinket (won by disenchanter)
     table.insert(self.completedRolls, {
-        rollID = 8002,
-        name = "Ironforge Gauntlets",
-        link = "|cff1eff00|Hitem:22222:0:0:0:0:0:0:0:0|h[Ironforge Gauntlets]|h|r",
-        texture = "Interface\\Icons\\INV_Gauntlets_04",
-        count = 2,
-        quality = 2, -- Uncommon
+        rollID = 8003,
+        name = "Mark of the Champion",
+        link = "|cffa335ee|Hitem:23207:0:0:0:0:0:0:0:0|h[Mark of the Champion]|h|r",
+        texture = "Interface\\Icons\\INV_Trinket_Naxxramas06",
+        count = 1,
+        quality = 4, -- Epic
         startTime = now - 600,
         duration = 90,
         rolls = {
-            WarriorK = { type = "greed", value = 33 },
-            Buenclima = { type = "greed", value = 88 },
-            RogueX   = { type = "pass" },
+            HealMePlz   = { type = "need",  value = 44 },
+            ShadowMaw   = { type = "need",  value = 29 },
+            AltRoller   = { type = "disenchant", value = 85 },
+            LockDash    = { type = "disenchant", value = 51 },
+            TankJoe     = { type = "pass" },
+            WarriorK    = { type = "pass" },
+            DPSKing     = { type = "pass" },
+            Buenclima   = { type = "pass" },
         },
     })
 
-    self:Print("Test data injected — 2 active rolls, 2 in history.")
+    self:Print("Test data injected — 3 active rolls (25-man raid), 3 in history.")
 
     -- Auto-show window
     if LootyFrame and not LootyFrame:IsShown() then
