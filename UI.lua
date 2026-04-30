@@ -35,6 +35,7 @@ local WHITE_TEX = "Interface\\Buttons\\WHITE8X8"
 
 local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
 local currentTab = "active"
+local expandedSections = {} -- rollID → sectionType (persists across refresh)
 
 -- ---- Determine winner: highest roll, priority need > greed > DE ----
 local function DetermineWinner(rolls)
@@ -676,20 +677,36 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         end
     end
 
+    -- Helper: expand a section
+    local function expandSection(sectionType)
+        panel._expandedType = sectionType
+        expandedSections[rollData.rollID] = sectionType
+        buildPlayerList(sectionType)
+        sectionFrame:Show()
+        highlightTab(sectionType)
+    end
+
+    -- Helper: collapse all sections
+    local function collapseSection()
+        panel._expandedType = nil
+        expandedSections[rollData.rollID] = nil
+        sectionFrame:Hide()
+        for _, tab in pairs(accordionTabs) do
+            tab.tabBg:SetVertexColor(0.08, 0.08, 0.08, 0.0)
+        end
+    end
+
     -- Click handlers
     local function toggleSection(sectionType)
         local isCurrentlyExpanded = sectionFrame:IsShown() and panel._expandedType == sectionType
         if isCurrentlyExpanded then
-            sectionFrame:Hide()
-            panel._expandedType = nil
-            for _, tab in pairs(accordionTabs) do
-                tab.tabBg:SetVertexColor(0.08, 0.08, 0.08, 0.0)
-            end
+            collapseSection()
         else
-            panel._expandedType = sectionType
-            buildPlayerList(sectionType)
-            sectionFrame:Show()
-            highlightTab(sectionType)
+            expandSection(sectionType)
+        end
+        -- DEBUG
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r Click: section=" .. sectionType .. " rollID=" .. rollData.rollID .. " expandedSections[" .. rollData.rollID .. "]=" .. tostring(expandedSections[rollData.rollID]))
         end
         UI:Refresh()
     end
@@ -708,12 +725,18 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         end)
     end
 
-    -- Auto-expand winner section
-    if defaultExpanded then
-        panel._expandedType = defaultExpanded
-        buildPlayerList(defaultExpanded)
-        sectionFrame:Show()
-        highlightTab(defaultExpanded)
+    -- Restore state from module-level storage, or auto-expand winner
+    local savedState = expandedSections[rollData.rollID]
+    if savedState and accordionTabs[savedState] then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r RESTORE: rollID=" .. rollData.rollID .. " section=" .. savedState)
+        end
+        expandSection(savedState)
+    elseif defaultExpanded then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r DEFAULT: rollID=" .. rollData.rollID .. " section=" .. defaultExpanded)
+        end
+        expandSection(defaultExpanded)
     end
 
     -- -- Separator line (history only)
