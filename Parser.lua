@@ -92,12 +92,14 @@ function Parser:ParseMessageType(message)
     return nil, nil, nil
 end
 
--- Find active roll by matching item name
+-- Find active or completed roll by matching item name
 local function FindRollByItem(itemName)
     local msgName = ExtractItemName(itemName)
     if not msgName or msgName == "" then return nil end
 
-    for _, rollData in ipairs(addon:GetAllActiveRolls()) do
+    -- Search active rolls first
+    local activeRolls = addon:GetAllActiveRolls()
+    for _, rollData in ipairs(activeRolls) do
         local linkName = ExtractItemName(rollData.link or "")
         if not linkName or linkName == "" then
             linkName = rollData.name
@@ -106,6 +108,19 @@ local function FindRollByItem(itemName)
             return rollData.rollID
         end
     end
+
+    -- Also search completed rolls (roll may have ended before chat messages arrived)
+    local completedRolls = addon:GetCompletedRolls()
+    for _, rollData in ipairs(completedRolls) do
+        local linkName = ExtractItemName(rollData.link or "")
+        if not linkName or linkName == "" then
+            linkName = rollData.name
+        end
+        if linkName == msgName then
+            return rollData.rollID
+        end
+    end
+
     return nil
 end
 
@@ -113,19 +128,30 @@ end
 function Parser:ProcessMessage(message)
     if not message then return end
 
-    -- 1. Try roll RESULT first (has everything: type + value + player + item)
+    -- Debug: show incoming message
+    if addon and addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r " .. message)
+    end
+
+    -- 1. Try roll RESULT first
     local rollType, value, itemName, playerName = self:ParseRollResult(message)
     if rollType and value and playerName then
         local targetRollID = FindRollByItem(itemName)
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r RESULT match: " .. rollType .. " val=" .. value .. " item=" .. tostring(itemName) .. " player=" .. playerName .. " rollID=" .. tostring(targetRollID))
+        end
         if targetRollID then
             addon:RecordRoll(targetRollID, playerName, rollType, value)
         end
         return
     end
 
-    -- 2. Try roll TYPE patterns (selection without value)
+    -- 2. Try roll TYPE patterns
     local rawName, itemName, rollType = self:ParseMessageType(message)
     if itemName and rollType then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r TYPE match: " .. rollType .. " item=" .. tostring(itemName) .. " name=" .. tostring(rawName))
+        end
         if rawName == nil then
             local targetRollID = FindRollByItem(itemName)
             if targetRollID then
@@ -144,6 +170,9 @@ function Parser:ProcessMessage(message)
     -- 3. "You won: [ItemName]"
     local _, _, itemName = string.find(message, "^You won:%s*(.+)$")
     if itemName then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r WON match: " .. tostring(itemName))
+        end
         local targetRollID = FindRollByItem(itemName)
         if targetRollID then
             local roll = addon:GetRoll(targetRollID)
@@ -153,5 +182,9 @@ function Parser:ProcessMessage(message)
             end
         end
         return
+    end
+
+    if addon and addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff666666[LOOTY PARSE]|r no match")
     end
 end

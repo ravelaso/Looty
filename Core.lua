@@ -162,10 +162,19 @@ end
 function addon:RecordRoll(rollID, playerName, rollType, value)
     local roll = self.activeRolls[rollID]
     if not roll then
-        if self.db and self.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY CORE]|r RecordRoll FAILED — no active roll " .. rollID)
+        -- Also check completed rolls (chat messages may arrive after CANCEL_LOOT_ROLL)
+        for _, cr in ipairs(self.completedRolls) do
+            if cr.rollID == rollID then
+                roll = cr
+                break
+            end
         end
-        return false
+        if not roll then
+            if self.db and self.db.debug then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY CORE]|r RecordRoll FAILED — no roll " .. rollID)
+            end
+            return false
+        end
     end
 
     -- If player already has an entry, only overwrite if it has no value yet
