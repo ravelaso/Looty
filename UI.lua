@@ -37,6 +37,18 @@ local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
 local currentTab = "active"
 local expandedSections = {} -- rollID → sectionType (persists across refresh)
 
+-- Section colors: consistent across active and history
+local SECTION_COLORS = {
+    need       = { 0.80, 0.80, 0.80 },  -- White (neutral)
+    greed      = { 1.00, 0.85, 0.20 },  -- Yellow (gold coins)
+    disenchant = { 0.70, 0.50, 1.00 },  -- Purple (enchantment)
+    pass       = { 0.50, 0.50, 0.50 },  -- Gray (faded out)
+}
+
+-- Winner highlight: green (matches ">> Winner:" label)
+local WINNER_BG   = { 0.12, 0.60, 0.12, 0.30 }
+local WINNER_TEXT = { 0.20, 1.00, 0.20 }
+
 -- ---- Determine winner: highest roll, priority need > greed > DE ----
 local function DetermineWinner(rolls)
     local sections = { "need", "greed", "disenchant" }
@@ -429,42 +441,52 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     local contentWidth = content:GetWidth()
     panel:SetWidth(contentWidth)
 
-    -- Style configuration
+    -- Style configuration (consistent across active and history)
     local iconH      = isHistory and 28 or (ICON_SIZE - 4)
     local lineH      = 14
     local nameFont   = isHistory and "GameFontNormalSmall" or "GameFontNormal"
     local qColor     = QUALITY_COLORS[rollData.quality] or QUALITY_COLORS[2]
-    local borderA    = isHistory and 0.25 or 0.6
-    local nameAlpha  = isHistory and 0.55 or 1.0
-    local rollIconA  = isHistory and 0.5 or 1.0
-    local rollColor  = isHistory and { 0.5, 0.5, 0.52 } or nil -- nil = use themed colors
+    local panelBgA   = isHistory and 0.3 or 0.6
 
     -- -- Panel background
-    local panelBg = ColorTexture(panel, "BACKGROUND", 0.12, 0.12, 0.12, isHistory and 0.3 or 0.6)
+    local panelBg = ColorTexture(panel, "BACKGROUND", 0.12, 0.12, 0.12, panelBgA)
     panelBg:SetAllPoints(panel)
 
-    -- Panel border top
-    local panelBorderTop = ColorTexture(panel, "BORDER", 0.18, 0.18, 0.18, 0.5)
+    -- Panel border (all 4 sides, subtle)
+    local borderColor = { 0.20, 0.20, 0.20 }
+    local borderThick = 1
+    local panelBorderTop = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.6)
     panelBorderTop:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
     panelBorderTop:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
-    panelBorderTop:SetHeight(1)
+    panelBorderTop:SetHeight(borderThick)
+
+    local panelBorderLeft = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.4)
+    panelBorderLeft:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    panelBorderLeft:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
+    panelBorderLeft:SetWidth(borderThick)
+
+    local panelBorderRight = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.4)
+    panelBorderRight:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+    panelBorderRight:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    panelBorderRight:SetWidth(borderThick)
+
+    local panelBorderBottom = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.3)
+    panelBorderBottom:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
+    panelBorderBottom:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    panelBorderBottom:SetHeight(borderThick)
 
     -- -- Item header: icon + name
     local icon = panel:CreateTexture(nil, "ARTWORK")
     icon:SetSize(iconH, iconH)
     icon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
     icon:SetTexture(rollData.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-    if isHistory then
-        icon:SetDesaturated(true)
-        icon:SetAlpha(rollIconA)
-    end
 
-    -- Quality border
-    local iconBorder = ColorTexture(panel, "BORDER", qColor.r, qColor.g, qColor.b, borderA)
+    -- Quality border (consistent alpha)
+    local iconBorder = ColorTexture(panel, "BORDER", qColor.r, qColor.g, qColor.b, 0.5)
     iconBorder:SetSize(iconH + 2, iconH + 2)
     iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 
-    -- Item name
+    -- Item name (full brightness always)
     local name = panel:CreateFontString(nil, "OVERLAY", nameFont)
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
@@ -475,7 +497,7 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         displayName = displayName .. " (x" .. rollData.count .. ")"
     end
     name:SetText(displayName)
-    name:SetTextColor(qColor.r * nameAlpha, qColor.g * nameAlpha, qColor.b * nameAlpha)
+    name:SetTextColor(qColor.r, qColor.g, qColor.b)
 
     -- -- Timer bar (active only, hidden for completed/history)
     local timerRowY = -PANEL_PADDING - iconH - 6
@@ -570,26 +592,19 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
             tabBg:SetAllPoints(tab)
             tab.tabBg = tabBg
 
-            -- Icon
+            -- Icon (no history dimming — consistent colors everywhere)
             local tIcon = tab:CreateTexture(nil, "ARTWORK")
             tIcon:SetSize(14, 14)
             tIcon:SetPoint("LEFT", tab, "LEFT", 3, 0)
             tIcon:SetTexture(L.ROLL_ICONS[rt] or L.ROLL_ICONS.pass)
-            if isHistory then
-                tIcon:SetDesaturated(true)
-                tIcon:SetAlpha(rollIconA)
-            end
 
             -- Count text
             local tText = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             tText:SetPoint("LEFT", tIcon, "RIGHT", 3, 0)
             tText:SetText(count)
 
-            -- Color by type
-            local tabColor = rt == "need" and { 1.0, 0.35, 0.35 } or
-                             rt == "greed" and { 1.0, 0.85, 0.2 } or
-                             rt == "disenchant" and { 0.75, 0.5, 1.0 } or
-                             { 0.5, 0.5, 0.5 }
+            -- Color by type (consistent constants)
+            local tabColor = SECTION_COLORS[rt]
             tText:SetTextColor(tabColor[1], tabColor[2], tabColor[3])
 
             accordionTabs[rt] = tab
@@ -608,10 +623,7 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     -- Helper: build player list for a section
     local function buildPlayerList(sectionType)
         local entries = rollsByType[sectionType]
-        local sectionColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
-                             sectionType == "greed" and { 1.0, 0.85, 0.2 } or
-                             sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
-                             { 0.5, 0.5, 0.5 }
+        local sectionColor = SECTION_COLORS[sectionType]
 
         -- Clear previous
         for _, child in ipairs({ sectionFrame:GetChildren() }) do
@@ -627,33 +639,33 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         local playerRowH = 16
         for _, entry in ipairs(entries) do
             local isWinner = (entry.name == winnerPlayer)
+
+            -- Row background (green highlight for winner)
             local rowBg = ColorTexture(sectionFrame, "BACKGROUND",
-                isWinner and 0.6 or 0.12,
-                isWinner and 0.5 or 0.12,
-                isWinner and 0.0 or 0.12,
-                isWinner and 0.25 or 0.0)
+                isWinner and WINNER_BG[1] or 0.12,
+                isWinner and WINNER_BG[2] or 0.12,
+                isWinner and WINNER_BG[3] or 0.12,
+                isWinner and WINNER_BG[4] or 0.0)
             rowBg:SetPoint("TOPLEFT", sectionFrame, "TOPLEFT", 0, listY)
             rowBg:SetPoint("TOPRIGHT", sectionFrame, "TOPRIGHT", 0, listY)
             rowBg:SetHeight(playerRowH)
 
+            -- Player icon (no history dimming)
             local pIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
             pIcon:SetSize(14, 14)
             pIcon:SetPoint("LEFT", sectionFrame, "LEFT", 8, 0)
             pIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
             pIcon:SetTexture(L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass)
-            if isHistory then
-                pIcon:SetDesaturated(true)
-                pIcon:SetAlpha(rollIconA)
-            end
 
+            -- Player name (green text for winner, section color for others)
             local pName = sectionFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             pName:SetPoint("LEFT", pIcon, "RIGHT", 4, 0)
             pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
-            pName:SetTextColor(
-                isWinner and 1.0 or sectionColor[1],
-                isWinner and 0.9 or sectionColor[2],
-                isWinner and 0.3 or sectionColor[3]
-            )
+            if isWinner then
+                pName:SetTextColor(WINNER_TEXT[1], WINNER_TEXT[2], WINNER_TEXT[3])
+            else
+                pName:SetTextColor(sectionColor[1], sectionColor[2], sectionColor[3])
+            end
             listY = listY - playerRowH - 1
         end
 
@@ -664,10 +676,7 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
 
     -- Helper: highlight active tab
     local function highlightTab(sectionType)
-        local secColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
-                         sectionType == "greed" and { 1.0, 0.85, 0.2 } or
-                         sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
-                         { 0.5, 0.5, 0.5 }
+        local secColor = SECTION_COLORS[sectionType]
         for rt, tab in pairs(accordionTabs) do
             if rt == sectionType then
                 tab.tabBg:SetVertexColor(secColor[1] * 0.15, secColor[2] * 0.15, secColor[3] * 0.15, 0.8)
@@ -729,20 +738,9 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         expandSection(defaultExpanded)
     end
 
-    -- -- Separator line (history only)
-    if isHistory then
-        local sep = ColorTexture(panel, "BORDER", 0.15, 0.15, 0.15, 0.3)
-        sep:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PANEL_PADDING, 0)
-        sep:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PANEL_PADDING, 0)
-        sep:SetHeight(1)
-    end
-
     -- Calculate total height: header + winner + accordion bar + expanded section + padding
     local expandedH = sectionFrame:IsShown() and sectionFrame:GetHeight() or 0
     local totalH = PANEL_PADDING * 2 + iconH + 6 + lineH + 2 + ACC_TAB_HEIGHT + expandedH
-    if isHistory then
-        totalH = totalH + 1 -- separator
-    end
     panel:SetHeight(totalH)
 
     -- Store for timer updates (active panels only)
@@ -759,6 +757,23 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
 
     return panel, totalH
+end
+
+-- ---- Update tab counts (always updates both tabs) ----
+
+function UI:UpdateTabCounts()
+    local frame = LootyFrame
+    if not frame then return end
+
+    local activeCount = #addon:GetAllActiveRolls()
+    local historyCount = #addon:GetCompletedRolls()
+
+    if frame.tabs.active and frame.tabs.active.text then
+        frame.tabs.active.text:SetText("Active: " .. activeCount)
+    end
+    if frame.tabs.history and frame.tabs.history.text then
+        frame.tabs.history.text:SetText("History (" .. historyCount .. ")")
+    end
 end
 
 -- ---- Refresh the entire UI ----
@@ -828,6 +843,9 @@ function UI:Refresh()
 
         frame.tabs.history.text:SetText("History (" .. #completedRolls .. ")")
     end
+
+    -- Always update both tab counts
+    UI:UpdateTabCounts()
 
     -- Update content dimensions
     content:SetWidth(contentWidth)
