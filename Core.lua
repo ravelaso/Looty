@@ -58,8 +58,16 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("LOOT_CLOSED")
     self:RegisterEvent("CHAT_MSG_SYSTEM")
 
+    -- Class cache: refresh when raid/party composition changes
+    self:RegisterEvent("GROUP_ROSTER_UPDATE")
+
     -- Create the UI window
     LootyUI:Create()
+
+    -- Pre-populate class cache from current roster
+    if LootyUI.RefreshClassCache then
+        LootyUI:RefreshClassCache()
+    end
 
     -- Initialize Master Loot state (detect if already in ML mode at login)
     if LootyMasterLoot then
@@ -193,6 +201,13 @@ end
 function addon:CHAT_MSG_SYSTEM(event, message)
     -- Delegate to Parser for /roll message detection
     LootyParser:ProcessSystemMessage(message)
+end
+
+function addon:GROUP_ROSTER_UPDATE(event)
+    -- Refresh class cache when raid/party composition changes
+    if LootyUI.RefreshClassCache then
+        LootyUI:RefreshClassCache()
+    end
 end
 
 -- ---- Public API ----

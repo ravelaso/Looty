@@ -33,6 +33,107 @@ local QUALITY_COLORS = {
 
 local WHITE_TEX = "Interface\\Buttons\\WHITE8X8"
 
+-- Class icon texture: ICONS-CLASSES from WOTLK 3.3.5 (256x256, 64x64 cells).
+-- Verified layout from active WOTLK addons:
+--   Row 0: Warrior | Mage    | Rogue   | Druid
+--   Row 1: Hunter   | Shaman  | Priest  | Warlock
+--   Row 2: Paladin   | DK      | Monk    | (empty)
+--   Row 3: (empty row)
+-- Format: { left, right, top, bottom } — normalized 0-1.
+local CLASS_ICON_TEX = "Interface\\WorldStateFrame\\ICONS-CLASSES"
+local CLASS_TCOORDS = {
+    WARRIOR     = { 0,      0.25,   0,      0.25   },  -- col 0, row 0
+    MAGE        = { 0.25,   0.5,    0,      0.25   },  -- col 1, row 0
+    ROGUE       = { 0.5,    0.7656, 0,      0.25   },  -- col 2, row 0
+    DRUID       = { 0.7656, 1.0,    0,      0.25   },  -- col 3, row 0
+    HUNTER      = { 0,      0.25,   0.25,   0.5    },  -- col 0, row 1
+    SHAMAN      = { 0.25,   0.5,    0.25,   0.5    },  -- col 1, row 1
+    PRIEST      = { 0.5,    0.7656, 0.25,   0.5    },  -- col 2, row 1
+    WARLOCK     = { 0.7656, 1.0,    0.25,   0.5    },  -- col 3, row 1
+    PALADIN     = { 0,      0.25,   0.5,    0.7656 },  -- col 0, row 2
+    DEATHKNIGHT = { 0.25,   0.5,    0.5,    0.7656 },  -- col 1, row 2
+}
+
+-- Cache: playerName → classFileName (persists across refreshes,
+-- survives players leaving the raid after rolling)
+local classCache = {}
+
+-- Lookup class file name for a player. Sources (in order):
+--   1. Cache (from previous lookups)
+--   2. Raid roster (GetRaidRosterInfo)
+--   3. Party roster (UnitClass on party units)
+--   4. Falls back to nil → caller shows question mark
+local function GetPlayerClass(playerName)
+    -- 1. Check cache first
+    if classCache[playerName] then
+        return classCache[playerName]
+    end
+
+    local classFileName
+
+    -- 2. Check raid roster
+    local inRaid = IsInRaid()
+    if inRaid then
+        for i = 1, GetNumGroupMembers() do
+            local name, _, _, _, _, cls = GetRaidRosterInfo(i)
+            if name == playerName then
+                classFileName = cls
+                break
+            end
+        end
+    else
+        -- 3. Check party
+        local name = UnitName("player")
+        if name == playerName then
+            local _, cls = UnitClass("player")
+            classFileName = cls
+        else
+            for i = 1, GetNumGroupMembers() - 1 do
+                local unit = "party" .. i
+                if UnitName(unit) == playerName then
+                    local _, cls = UnitClass(unit)
+                    classFileName = cls
+                    break
+                end
+            end
+        end
+    end
+
+    -- Cache if found
+    if classFileName then
+        classCache[playerName] = classFileName
+    end
+
+    return classFileName
+end
+
+-- Pre-populate class cache from current roster.
+-- Call this on raid/party changes and during Initialize.
+function UI:RefreshClassCache()
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local name, _, _, _, _, cls = GetRaidRosterInfo(i)
+            if name and cls then
+                classCache[name] = cls
+            end
+        end
+    else
+        local name = UnitName("player")
+        if name then
+            local _, cls = UnitClass("player")
+            classCache[name] = cls
+        end
+        for i = 1, GetNumGroupMembers() - 1 do
+            local unit = "party" .. i
+            local n = UnitName(unit)
+            if n then
+                local _, cls = UnitClass(unit)
+                classCache[n] = cls
+            end
+        end
+    end
+end
+
 local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
 local currentTab = "grouplot"
 local expandedSections = {} -- rollID → sectionType (persists across refresh)
@@ -659,6 +760,17 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         local playerRowH = 16
         for _, entry in ipairs(entries) do
             local isWinner = (entry.name == winnerPlayer)
+            local classFile = GetPlayerClass(entry.name)
+            local classTex = CLASS_TCOORDS[classFile]
+
+            -- DEBUG: log class lookup failures when debug is on
+            if addon and addon.db and addon.db.debug then
+                if not classFile then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r No class found for '" .. entry.name .. "'")
+                elseif not classTex then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r class=" .. classFile .. " but NO coords")
+                end
+            end
 
             -- Row background (green highlight for winner)
             local rowBg = ColorTexture(sectionFrame, "BACKGROUND",
@@ -670,16 +782,28 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
             rowBg:SetPoint("TOPRIGHT", sectionFrame, "TOPRIGHT", 0, listY)
             rowBg:SetHeight(playerRowH)
 
-            -- Player icon (no history dimming)
+            -- Class icon (small, leftmost)
+            local cIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
+            cIcon:SetSize(14, 14)
+            cIcon:SetPoint("LEFT", sectionFrame, "LEFT", 2, 0)
+            cIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
+            if classTex then
+                cIcon:SetTexture(CLASS_ICON_TEX)
+                cIcon:SetTexCoord(classTex[1], classTex[2], classTex[3], classTex[4])
+            else
+                cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+
+            -- Player roll icon
             local pIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
             pIcon:SetSize(14, 14)
-            pIcon:SetPoint("LEFT", sectionFrame, "LEFT", 8, 0)
+            pIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
             pIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
             pIcon:SetTexture(L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass)
 
             -- Player name (green text for winner, section color for others)
             local pName = sectionFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            pName:SetPoint("LEFT", pIcon, "RIGHT", 4, 0)
+            pName:SetPoint("LEFT", pIcon, "RIGHT", 3, 0)
             pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
             if isWinner then
                 pName:SetTextColor(WINNER_TEXT[1], WINNER_TEXT[2], WINNER_TEXT[3])
@@ -930,6 +1054,14 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
         remaining = math.max(0, remaining)
         timerText:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
         rollY = rollY - timerBarH - 4
+
+        -- Store timer refs on panel for live updates
+        panel._mlItemIndex = itemIndex
+        panel._mlRollStart = item.rollStart
+        panel._mlDuration = LootyMasterLoot.rollDuration
+        panel._mlTimerBg = timerBg
+        panel._mlTimerBar = timerBar
+        panel._mlTimerText = timerText
     end
 
     -- Action buttons (only for ML, only when not done and not rolling)
@@ -988,7 +1120,7 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
         rollY = rollY - 24
     end
 
-    -- Roll list (if there are rolls)
+    -- Roll list (if there are rolls) — individual rows with class icons
     if item.rolling and rollCount > 0 then
         -- Sort rolls by value desc
         local sortedRolls = {}
@@ -1000,20 +1132,47 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
             return a.name < b.name
         end)
 
-        -- Show top 3 rolls inline, rest in accordion
         local maxInline = math.min(3, #sortedRolls)
-        local parts = {}
+        local rollRowH = 16
         for i = 1, maxInline do
-            parts[#parts + 1] = sortedRolls[i].name .. "(" .. sortedRolls[i].value .. ")"
-        end
+            local entry = sortedRolls[i]
+            local classFile = GetPlayerClass(entry.name)
+            local classTex = CLASS_TCOORDS[classFile]
 
-        local rollLine = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rollLine:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
-        rollLine:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
-        rollLine:SetJustifyH("LEFT")
-        rollLine:SetText(table.concat(parts, ", "))
-        rollLine:SetTextColor(1.0, 0.85, 0.2)
-        rollY = rollY - 16
+            -- DEBUG: log class lookup failures when debug is on
+            if addon and addon.db and addon.db.debug then
+                if not classFile then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r No class found for '" .. entry.name .. "'")
+                elseif not classTex then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r class=" .. classFile .. " but NO coords")
+                end
+            end
+
+            -- Class icon
+            local cIcon = panel:CreateTexture(nil, "ARTWORK")
+            cIcon:SetSize(14, 14)
+            cIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+            if classTex then
+                cIcon:SetTexture(CLASS_ICON_TEX)
+                cIcon:SetTexCoord(classTex[1], classTex[2], classTex[3], classTex[4])
+            else
+                cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+
+            -- Roll icon (need/greed/etc - default to need since MasterLoot is simple)
+            local rIcon = panel:CreateTexture(nil, "ARTWORK")
+            rIcon:SetSize(14, 14)
+            rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
+            rIcon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
+
+            -- Player name + value
+            local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
+            pName:SetText(entry.name .. " (" .. entry.value .. ")")
+            pName:SetTextColor(1.0, 0.85, 0.2)
+
+            rollY = rollY - rollRowH - 1
+        end
     end
 
     -- Rerolls warning
@@ -1047,7 +1206,29 @@ end
 -- ---- Master Loot timer update ----
 
 function UI:UpdateMasterLootTimer(itemIndex, remaining)
-    -- Timer is updated via OnUpdate in MasterLoot.lua, no need for UI refresh here
+    if not LootyFrame or not LootyFrame.content then return end
+    for _, child in ipairs({ LootyFrame.content:GetChildren() }) do
+        if child._mlItemIndex == itemIndex and child._mlTimerBar and child._mlTimerBg then
+            local duration = child._mlDuration or LootyMasterLoot.rollDuration
+            local pct = remaining / duration
+            child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+
+            if pct < 0.25 then
+                child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+            elseif pct < 0.5 then
+                child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+            else
+                child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+            end
+
+            local mins = math.floor(remaining / 60)
+            local secs = math.floor(remaining % 60)
+            if child._mlTimerText then
+                child._mlTimerText:SetText(string.format("%d:%02d", mins, secs))
+            end
+            break
+        end
+    end
 end
 
 -- ---- Refresh the entire UI ----
@@ -1240,30 +1421,60 @@ end
 function UI:UpdateTimers()
     local frame = LootyFrame
     if not frame or not frame:IsShown() then return end
-    if currentTab ~= "grouplot" then return end
-
     local content = frame.content
-    for _, child in ipairs({ content:GetChildren() }) do
-        if child.rollID and child.timerBar and child.timerBar:IsShown() then
-            local elapsed = GetTime() - child.startTime
-            local remaining = math.max(0, child.duration - elapsed)
-            local pct = remaining / child.duration
 
-            local bgWidth = child.timerBg:GetWidth()
-            child.timerBar:SetWidth(bgWidth * pct)
+    -- GroupLoot timers (only update when on that tab — visible timers)
+    if currentTab == "grouplot" then
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.rollID and child.timerBar and child.timerBar:IsShown() then
+                local elapsed = GetTime() - child.startTime
+                local remaining = math.max(0, child.duration - elapsed)
+                local pct = remaining / child.duration
 
-            if pct < 0.25 then
-                child.timerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
-            elseif pct < 0.5 then
-                child.timerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
-            else
-                child.timerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                local bgWidth = child.timerBg:GetWidth()
+                child.timerBar:SetWidth(bgWidth * pct)
+
+                if pct < 0.25 then
+                    child.timerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                elseif pct < 0.5 then
+                    child.timerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                else
+                    child.timerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                end
+
+                local mins = math.floor(remaining / 60)
+                local secs = math.floor(remaining % 60)
+                if child.timerText then
+                    child.timerText:SetText(string.format("%d:%02d", mins, secs))
+                end
             end
+        end
+    end
 
-            local mins = math.floor(remaining / 60)
-            local secs = math.floor(remaining % 60)
-            if child.timerText then
-                child.timerText:SetText(string.format("%d:%02d", mins, secs))
+    -- MasterLoot timer (update when on Master tab — visible timer)
+    if currentTab == "master" and LootyMasterLoot and LootyMasterLoot.currentRoll then
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child._mlItemIndex and child._mlTimerBar and child._mlRollStart then
+                local elapsed = GetTime() - child._mlRollStart
+                local remaining = math.max(0, child._mlDuration - elapsed)
+                local duration = child._mlDuration or LootyMasterLoot.rollDuration
+                local pct = remaining / duration
+
+                child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+
+                if pct < 0.25 then
+                    child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                elseif pct < 0.5 then
+                    child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                else
+                    child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                end
+
+                local mins = math.floor(remaining / 60)
+                local secs = math.floor(remaining % 60)
+                if child._mlTimerText then
+                    child._mlTimerText:SetText(string.format("%d:%02d", mins, secs))
+                end
             end
         end
     end
