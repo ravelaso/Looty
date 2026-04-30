@@ -201,6 +201,19 @@ function Parser:ProcessMessage(message)
         return
     end
 
+    -- 5. "Nobody won: [ItemName]" — move to history (no winner)
+    local _, _, itemName = string.find(message, "^Nobody won:%s*(.+)$")
+    if itemName then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY PARSE]|r WON match (nobody): " .. tostring(itemName))
+        end
+        local targetRollID = FindRollByItem(itemName)
+        if targetRollID then
+            addon:FinalizeRoll(targetRollID)
+        end
+        return
+    end
+
     if addon and addon.db and addon.db.debug then
         DEFAULT_CHAT_FRAME:AddMessage("|cff666666[LOOTY PARSE]|r no match")
     end
