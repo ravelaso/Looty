@@ -52,6 +52,12 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("CANCEL_LOOT_ROLL")
     self:RegisterEvent("CHAT_MSG_LOOT")
 
+    -- Master Loot events
+    self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED")
+    self:RegisterEvent("LOOT_OPENED")
+    self:RegisterEvent("LOOT_CLOSED")
+    self:RegisterEvent("CHAT_MSG_SYSTEM")
+
     -- Create the UI window
     LootyUI:Create()
 
@@ -157,6 +163,31 @@ end
 function addon:CHAT_MSG_LOOT(event, message)
     -- Delegate to Parser module
     LootyParser:ProcessMessage(message)
+end
+
+-- ---- Master Loot Events ----
+
+function addon:PARTY_LOOT_METHOD_CHANGED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootMethodChanged()
+    end
+end
+
+function addon:LOOT_OPENED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootOpened()
+    end
+end
+
+function addon:LOOT_CLOSED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootClosed()
+    end
+end
+
+function addon:CHAT_MSG_SYSTEM(event, message)
+    -- Delegate to Parser for /roll message detection
+    LootyParser:ProcessSystemMessage(message)
 end
 
 -- ---- Public API ----
@@ -290,6 +321,12 @@ SlashCmdList["LOOTY"] = function(msg)
         LootyUI:Refresh()
     elseif msg == "test" then
         addon:InjectTestRolls()
+    elseif msg == "mtest" then
+        if LootyMasterLoot then
+            LootyMasterLoot:InjectTestRolls()
+        else
+            addon:Print("Master Loot module not loaded.")
+        end
     elseif msg == "debug" then
         addon.db.debug = not addon.db.debug
         addon:Print("Debug " .. (addon.db.debug and "ON" or "OFF"))
@@ -298,7 +335,8 @@ SlashCmdList["LOOTY"] = function(msg)
         addon:Print("  /looty        - Toggle window")
         addon:Print("  /looty lock   - Toggle window lock (dragging)")
         addon:Print("  /looty clear  - Clear completed roll history")
-        addon:Print("  /looty test   - Inject mock rolls for testing")
+        addon:Print("  /looty test   - Inject mock Group Loot rolls")
+        addon:Print("  /looty mtest  - Inject mock Master Loot data")
         addon:Print("  /looty debug  - Toggle data debug")
     end
 end

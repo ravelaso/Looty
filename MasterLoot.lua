@@ -1,0 +1,415 @@
+-- Looty Master Loot Module
+-- Tracks Master Loot items, manual /roll results, and cheating detection.
+-- All players see the UI (transparency), but only the ML has assignment buttons.
+
+local addon = Looty
+local L = Looty_L
+
+local MasterLoot = {}
+LootyMasterLoot = MasterLoot
+
+-- State
+MasterLoot.active = false       -- Is Master Loot mode active?
+MasterLoot.items = {}           -- Array of item entries
+MasterLoot.currentRoll = nil    -- Index of item currently rolling
+MasterLoot.rollTimer = nil      -- Frame for roll countdown
+MasterLoot.rollDuration = 30    -- Seconds for each roll
+MasterLoot.isML = false         -- Is current player the Master Looter?
+
+-- ---- Helper: check if player is Master Looter ----
+
+local function CheckIsML()
+    local method, _, mlName = GetLootMethod()
+    if method == "master" then
+        MasterLoot.isML = (mlName == UnitName("player"))
+    else
+        MasterLoot.isML = false
+    end
+    return MasterLoot.isML
+end
+
+-- ---- Event: PARTY_LOOT_METHOD_CHANGED ----
+
+function MasterLoot:OnLootMethodChanged()
+    local method = GetLootMethod()
+    local wasActive = MasterLoot.active
+
+    if method == "master" then
+        MasterLoot.active = true
+        CheckIsML()
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Master Loot mode activated. isML=" .. tostring(MasterLoot.isML))
+        end
+    else
+        MasterLoot.active = false
+        MasterLoot.items = {}
+        MasterLoot.currentRoll = nil
+        MasterLoot.rollTimer = nil
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Master Loot mode deactivated.")
+        end
+    end
+
+    if wasActive ~= MasterLoot.active then
+        -- Switch to Master tab when mode changes
+        if LootyUI and LootyUI.SwitchTab then
+            if MasterLoot.active then
+                LootyUI:SwitchTab("master")
+            elseif LootyUI.currentTab == "master" then
+                LootyUI:SwitchTab("active")
+            end
+        end
+        if LootyUI and LootyUI.Refresh then
+            LootyUI:Refresh()
+        end
+    end
+end
+
+-- ---- Event: LOOT_OPENED ----
+
+function MasterLoot:OnLootOpened()
+    if not MasterLoot.active then return end
+
+    -- Read items from the loot window
+    local numItems = GetNumLootItems()
+    if numItems == 0 then return end
+
+    MasterLoot.items = {}
+    for i = 1, numItems do
+        local slotType = GetLootSlotType(i)
+        if slotType == "item" then
+            local texture, name, quantity, quality, bindable = GetLootSlotInfo(i)
+            local link = GetLootSlotLink(i)
+            if name then
+                table.insert(MasterLoot.items, {
+                    slot = i,
+                    name = name,
+                    link = link,
+                    texture = texture,
+                    quantity = quantity or 1,
+                    quality = quality or 2,
+                    rolls = {},
+                    rerolls = {},
+                    rolling = false,
+                    rollStart = nil,
+                    isDone = false,
+                    winner = nil,
+                })
+            end
+        end
+    end
+
+    if addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Loot opened: " .. #MasterLoot.items .. " items found.")
+    end
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Event: LOOT_CLOSED ----
+
+function MasterLoot:OnLootClosed()
+    -- Keep items in MasterLoot.items so rolls can continue after looting
+    -- They stay until ML clears them or switches loot method
+end
+
+-- ---- Start Roll ----
+
+function MasterLoot:StartRoll(itemIndex)
+    local item = MasterLoot.items[itemIndex]
+    if not item or item.isDone or item.rolling then return end
+
+    -- Cancel any previous roll
+    if MasterLoot.rollTimer then
+        MasterLoot.rollTimer:Hide()
+    end
+
+    item.rolling = true
+    item.rollStart = GetTime()
+    item.rolls = {}
+    item.rerolls = {}
+    item.winner = nil
+    MasterLoot.currentRoll = itemIndex
+
+    -- Announce to raid
+    local msg = ">> Rolling for: " .. (item.link or item.name) .. " — /roll now! (" .. MasterLoot.rollDuration .. "s)"
+    SendChatMessage(msg, "RAID_WARNING")
+    addon:Print(msg)
+
+    -- Start countdown timer
+    MasterLoot.rollTimer = MasterLoot:CreateTimer(itemIndex)
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- End Roll (manual) ----
+
+function MasterLoot:EndRoll(itemIndex)
+    local item = MasterLoot.items[itemIndex]
+    if not item or not item.rolling then return end
+
+    item.rolling = false
+    item.rollStart = nil
+    MasterLoot.currentRoll = nil
+    MasterLoot.rollTimer = nil
+
+    -- Determine winner
+    local winner, winValue = MasterLoot:GetWinner(item)
+    item.winner = winner
+
+    if winner then
+        local announceMsg = ">> " .. winner .. " wins " .. (item.link or item.name) .. " with " .. winValue .. "!"
+        SendChatMessage(announceMsg, "RAID_WARNING")
+        addon:Print(announceMsg)
+    else
+        addon:Print("No rolls for " .. (item.link or item.name))
+    end
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Timer ----
+
+function MasterLoot:CreateTimer(itemIndex)
+    local timer = CreateFrame("Frame")
+    timer.itemIndex = itemIndex
+    timer.elapsed = 0
+    timer:Show()
+    timer:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = self.elapsed + elapsed
+        if self.elapsed >= 1 then
+            self.elapsed = 0
+            local item = MasterLoot.items[self.itemIndex]
+            if item and item.rolling then
+                local remaining = MasterLoot.rollDuration - (GetTime() - item.rollStart)
+                if remaining <= 0 then
+                    MasterLoot:EndRoll(self.itemIndex)
+                else
+                    if LootyUI and LootyUI.UpdateMasterLootTimer then
+                        LootyUI:UpdateMasterLootTimer(self.itemIndex, remaining)
+                    end
+                end
+            else
+                self:Hide()
+            end
+        end
+    end)
+    return timer
+end
+
+-- ---- Record Roll ----
+
+function MasterLoot:RecordRoll(playerName, value, itemName)
+    if not MasterLoot.active then return end
+    if not MasterLoot.currentRoll then return end
+
+    local item = MasterLoot.items[MasterLoot.currentRoll]
+    if not item or not item.rolling then return end
+
+    -- Validate item name match (fuzzy — just check if item name is in the message)
+    if itemName and item.name and not (itemName:find(item.name, 1, true) or item.name:find(itemName, 1, true)) then
+        -- Don't reject outright — in Master Loot, /roll doesn't include item name
+        -- so we just associate with current roll
+    end
+
+    -- Check for duplicate (cheating detection)
+    if item.rolls[playerName] then
+        item.rerolls[playerName] = { value = value, time = GetTime() }
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r REROLL detected: " .. playerName .. " rolled " .. value .. " (first: " .. item.rolls[playerName].value .. ")")
+        end
+        return
+    end
+
+    -- Record the roll
+    item.rolls[playerName] = { value = value, time = GetTime() }
+
+    if addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Roll recorded: " .. playerName .. " = " .. value .. " on " .. (item.name or "?"))
+    end
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Get Winner ----
+
+function MasterLoot:GetWinner(item)
+    local bestPlayer = nil
+    local bestValue = 0
+
+    for playerName, rollInfo in pairs(item.rolls) do
+        if rollInfo.value and rollInfo.value > bestValue then
+            bestValue = rollInfo.value
+            bestPlayer = playerName
+        end
+    end
+
+    return bestPlayer, bestValue
+end
+
+-- ---- Clear Done Items ----
+
+function MasterLoot:ClearDone()
+    local newItems = {}
+    for _, item in ipairs(MasterLoot.items) do
+        if not item.isDone then
+            table.insert(newItems, item)
+        end
+    end
+    MasterLoot.items = newItems
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Toggle Item Done ----
+
+function MasterLoot:ToggleDone(itemIndex)
+    local item = MasterLoot.items[itemIndex]
+    if not item then return end
+
+    item.isDone = not item.isDone
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Cancel Current Roll ----
+
+function MasterLoot:CancelRoll()
+    if not MasterLoot.currentRoll then return end
+    local item = MasterLoot.items[MasterLoot.currentRoll]
+    if not item then return end
+
+    item.rolling = false
+    item.rollStart = nil
+    MasterLoot.currentRoll = nil
+    if MasterLoot.rollTimer then
+        MasterLoot.rollTimer:Hide()
+        MasterLoot.rollTimer = nil
+    end
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+-- ---- Get Items by State ----
+
+function MasterLoot:GetPendingItems()
+    local items = {}
+    for _, item in ipairs(MasterLoot.items) do
+        if not item.isDone then
+            table.insert(items, item)
+        end
+    end
+    return items
+end
+
+function MasterLoot:GetDoneItems()
+    local items = {}
+    for _, item in ipairs(MasterLoot.items) do
+        if item.isDone then
+            table.insert(items, item)
+        end
+    end
+    return items
+end
+
+-- ---- Get Active Item Count ----
+
+function MasterLoot:GetActiveItemCount()
+    local count = 0
+    for _, item in ipairs(MasterLoot.items) do
+        if not item.isDone then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- ---- Test Data Injection ----
+
+function MasterLoot:InjectTestRolls()
+    MasterLoot.active = true
+    MasterLoot.isML = true
+    MasterLoot.items = {
+        {
+            slot = 1,
+            name = "Spinal Crusher",
+            link = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
+            texture = "Interface\\Icons\\INV_Mace_36",
+            quantity = 1,
+            quality = 4,
+            rolling = true,
+            rollStart = GetTime(),
+            isDone = false,
+            winner = nil,
+            rolls = {
+                IronWall   = { value = 45, time = GetTime() },
+                TankJoe    = { value = 73, time = GetTime() },
+                Buenclima  = { value = 22, time = GetTime() },
+                ShadowMaw  = { value = 88, time = GetTime() },
+                HealMePlz  = { value = 15, time = GetTime() },
+                DPSKing    = { value = 61, time = GetTime() },
+                WarriorK   = { value = 94, time = GetTime() },
+                MageBob    = { value = 33, time = GetTime() },
+            },
+            rerolls = {
+                DPSKing = { value = 99, time = GetTime() }, -- cheating attempt
+            },
+        },
+        {
+            slot = 2,
+            name = "Staff of the Shadowflame",
+            link = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
+            texture = "Interface\\Icons\\INV_Staff_13",
+            quantity = 1,
+            quality = 4,
+            rolling = false,
+            rollStart = nil,
+            isDone = false,
+            winner = nil,
+            rolls = {},
+            rerolls = {},
+        },
+        {
+            slot = 3,
+            name = "Ring of the Eternal",
+            link = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
+            texture = "Interface\\Icons\\INV_Jewelry_Ring_15",
+            quantity = 1,
+            quality = 3,
+            rolling = false,
+            rollStart = nil,
+            isDone = true, -- Already done
+            winner = "HealMePlz",
+            rolls = {
+                HealMePlz  = { value = 87, time = GetTime() },
+                ShadowMaw  = { value = 34, time = GetTime() },
+                MageBob    = { value = 65, time = GetTime() },
+            },
+            rerolls = {},
+        },
+    }
+    MasterLoot.currentRoll = 1
+
+    addon:Print("Master Loot test data injected — 2 pending, 1 done.")
+
+    if LootyUI and LootyUI.SwitchTab then
+        LootyUI:SwitchTab("master")
+    end
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end

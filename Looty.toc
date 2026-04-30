@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: Looty
-## Notes: Tracks group loot rolls in a compact window.
+## Notes: Tracks group loot and master loot rolls in a compact window.
 ## Author: Ravelo
 ## Version: 1.0.0
 ## SavedVariables: Looty_SavedVars
@@ -8,4 +8,5 @@
 Locales\enUS.lua
 Core.lua
 Parser.lua
+MasterLoot.lua
 UI.lua

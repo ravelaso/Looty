@@ -273,10 +273,39 @@ function UI:Create()
 
     frame.tabs.active = activeTab
 
+    -- Master Loot tab
+    local masterTab = CreateFrame("Button", nil, tabBarOverlay)
+    masterTab:SetSize(80, TAB_BAR_HEIGHT - 2)
+    masterTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
+    masterTab:EnableMouse(true)
+    masterTab:SetScript("OnClick", function() UI:SwitchTab("master") end)
+    masterTab:SetScript("OnEnter", function()
+        if currentTab ~= "master" then masterTab.hoverBg:Show() end
+    end)
+    masterTab:SetScript("OnLeave", function() masterTab.hoverBg:Hide() end)
+
+    local masterIndicator = ColorTexture(masterTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
+    masterIndicator:SetPoint("BOTTOMLEFT", masterTab, "BOTTOMLEFT", 0, 0)
+    masterIndicator:SetPoint("BOTTOMRIGHT", masterTab, "BOTTOMRIGHT", 0, 0)
+    masterIndicator:SetHeight(2)
+    masterTab.indicator = masterIndicator
+
+    local masterHover = ColorTexture(masterTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    masterHover:SetAllPoints(masterTab)
+    masterHover:Hide()
+    masterTab.hoverBg = masterHover
+
+    local masterText = masterTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    masterText:SetPoint("CENTER", masterTab, "CENTER", 0, 0)
+    masterText:SetText("Master: 0")
+    masterTab.text = masterText
+
+    frame.tabs.master = masterTab
+
     -- History tab
     local historyTab = CreateFrame("Button", nil, tabBarOverlay)
     historyTab:SetSize(75, TAB_BAR_HEIGHT - 2)
-    historyTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
+    historyTab:SetPoint("LEFT", masterTab, "RIGHT", 0, 0)
     historyTab:EnableMouse(true)
     historyTab:SetScript("OnClick", function() UI:SwitchTab("history") end)
     historyTab:SetScript("OnEnter", function()
@@ -399,14 +428,30 @@ function UI:SwitchTab(tab)
     local frame = LootyFrame
     if not frame then return end
 
+    local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
+    local masterCountText = "Master: " .. mlCount
+
     if tab == "active" then
         frame.tabs.active.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
         frame.tabs.active.text:SetTextColor(0.85, 0.85, 0.85)
+        frame.tabs.master.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.master.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.text:SetText(masterCountText)
+        frame.tabs.history.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.history.text:SetTextColor(0.4, 0.4, 0.4)
+    elseif tab == "master" then
+        frame.tabs.active.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.active.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
+        frame.tabs.master.text:SetTextColor(0.85, 0.85, 0.85)
         frame.tabs.history.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
         frame.tabs.history.text:SetTextColor(0.4, 0.4, 0.4)
     else
         frame.tabs.active.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
         frame.tabs.active.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.master.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.text:SetText(masterCountText)
         frame.tabs.history.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
         frame.tabs.history.text:SetTextColor(0.85, 0.85, 0.85)
     end
@@ -767,6 +812,7 @@ function UI:UpdateTabCounts()
 
     local activeCount = #addon:GetAllActiveRolls()
     local historyCount = #addon:GetCompletedRolls()
+    local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
 
     if frame.tabs.active and frame.tabs.active.text then
         frame.tabs.active.text:SetText("Active: " .. activeCount)
@@ -774,12 +820,245 @@ function UI:UpdateTabCounts()
     if frame.tabs.history and frame.tabs.history.text then
         frame.tabs.history.text:SetText("History (" .. historyCount .. ")")
     end
+    if frame.tabs.master and frame.tabs.master.text then
+        frame.tabs.master.text:SetText("Master: " .. mlCount)
+    end
 end
 
 -- ---- Clear accordion expanded state for a rollID (called when roll moves to history) ----
 
 function UI:ClearExpandedState(rollID)
     expandedSections[rollID] = nil
+end
+
+-- ---- Build Master Loot item panel ----
+-- opts: { isDone: bool }
+
+local function BuildMasterItemPanel(content, item, itemIndex, opts)
+    opts = opts or {}
+    local isDone = opts.isDone or false
+    local alpha = isDone and 0.5 or 1.0
+    local qColor = QUALITY_COLORS[item.quality] or QUALITY_COLORS[2]
+
+    local panel = CreateFrame("Frame", nil, content)
+    local contentWidth = content:GetWidth()
+    panel:SetWidth(contentWidth)
+
+    -- Panel background
+    local panelBg = ColorTexture(panel, "BACKGROUND", 0.12, 0.12, 0.12, isDone and 0.2 or 0.6)
+    panelBg:SetAllPoints(panel)
+
+    -- Panel border
+    local borderColor = isDone and { 0.15, 0.15, 0.15 } or { 0.20, 0.20, 0.20 }
+    local panelBorderTop = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.4)
+    panelBorderTop:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    panelBorderTop:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+    panelBorderTop:SetHeight(1)
+
+    -- Item icon
+    local iconH = ICON_SIZE - 4
+    local icon = panel:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(iconH, iconH)
+    icon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
+    icon:SetTexture(item.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+    icon:SetAlpha(alpha)
+
+    -- Quality border
+    local iconBorder = ColorTexture(panel, "BORDER", qColor.r, qColor.g, qColor.b, 0.5)
+    iconBorder:SetSize(iconH + 2, iconH + 2)
+    iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+
+    -- Item name
+    local name = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(true)
+    local displayName = item.name
+    if item.quantity and item.quantity > 1 then
+        displayName = displayName .. " (x" .. item.quantity .. ")"
+    end
+    name:SetText(displayName)
+    name:SetTextColor(qColor.r * alpha, qColor.g * alpha, qColor.b * alpha)
+    name:SetAlpha(alpha)
+
+    local rollY = -PANEL_PADDING - iconH - 4
+
+    -- Roll count summary
+    local rollCount = 0
+    local rerollCount = 0
+    if item.rolls then
+        for _ in pairs(item.rolls) do rollCount = rollCount + 1 end
+    end
+    if item.rerolls then
+        for _ in pairs(item.rerolls) do rerollCount = rerollCount + 1 end
+    end
+
+    -- Status indicator
+    local statusColor
+    local statusText
+    if item.rolling then
+        statusColor = { 1.0, 0.85, 0.2 }
+        statusText = "Rolling... (" .. rollCount .. " rolls)"
+    elseif item.winner then
+        statusColor = { 0.3, 1.0, 0.3 }
+        statusText = "Winner: " .. item.winner
+    elseif rollCount > 0 then
+        statusColor = { 0.8, 0.8, 0.8 }
+        statusText = "Rolls: " .. rollCount
+    else
+        statusColor = { 0.4, 0.4, 0.4 }
+        statusText = "No rolls"
+    end
+
+    if rerollCount > 0 then
+        statusText = statusText .. " | " .. rerollCount .. " re-roll(s) ⚠️"
+    end
+
+    local status = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    status:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+    status:SetText(statusText)
+    status:SetTextColor(statusColor[1] * alpha, statusColor[2] * alpha, statusColor[3] * alpha)
+    rollY = rollY - 16
+
+    -- Timer bar (only when rolling)
+    local timerBarH = 3
+    local timerBg, timerBar, timerText
+    if item.rolling and item.rollStart then
+        timerBg = ColorTexture(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
+        timerBg:SetHeight(timerBarH)
+        timerBg:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        timerBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, rollY)
+
+        timerBar = ColorTexture(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
+        timerBar:SetHeight(timerBarH)
+        timerBar:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+
+        timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, rollY - 2)
+        timerText:SetJustifyH("RIGHT")
+        local remaining = MasterLoot.rollDuration - (GetTime() - item.rollStart)
+        remaining = math.max(0, remaining)
+        timerText:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
+        rollY = rollY - timerBarH - 4
+    end
+
+    -- Action buttons (only for ML, only when not done and not rolling)
+    local isML = LootyMasterLoot and LootyMasterLoot.isML
+    if isML and not isDone and not item.rolling then
+        local btnY = rollY - 4
+
+        -- Start Roll button
+        local startBtn = CreateFrame("Button", nil, panel)
+        startBtn:SetSize(70, 20)
+        startBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, btnY)
+        local startBg = ColorTexture(startBtn, "BACKGROUND", 0.15, 0.35, 0.15, 0.8)
+        startBg:SetAllPoints(startBtn)
+        local startText = startBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        startText:SetPoint("CENTER", startBtn, "CENTER", 0, 0)
+        startText:SetText("Start Roll")
+        startText:SetTextColor(0.5, 1.0, 0.5)
+        startBtn:SetScript("OnEnter", function() startBg:SetVertexColor(0.25, 0.45, 0.25, 0.8) end)
+        startBtn:SetScript("OnLeave", function() startBg:SetVertexColor(0.15, 0.35, 0.15, 0.8) end)
+        startBtn:SetScript("OnClick", function() LootyMasterLoot:StartRoll(itemIndex) end)
+        startBtn:Show()
+
+        -- Mark Done button
+        local doneBtn = CreateFrame("Button", nil, panel)
+        doneBtn:SetSize(55, 20)
+        doneBtn:SetPoint("LEFT", startBtn, "RIGHT", 4, 0)
+        local doneBg = ColorTexture(doneBtn, "BACKGROUND", 0.25, 0.15, 0.15, 0.8)
+        doneBg:SetAllPoints(doneBtn)
+        local doneText = doneBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        doneText:SetPoint("CENTER", doneBtn, "CENTER", 0, 0)
+        doneText:SetText("Done")
+        doneText:SetTextColor(1.0, 0.5, 0.5)
+        doneBtn:SetScript("OnEnter", function() doneBg:SetVertexColor(0.35, 0.25, 0.25, 0.8) end)
+        doneBtn:SetScript("OnLeave", function() doneBg:SetVertexColor(0.25, 0.15, 0.15, 0.8) end)
+        doneBtn:SetScript("OnClick", function() LootyMasterLoot:ToggleDone(itemIndex) end)
+        doneBtn:Show()
+
+        rollY = btnY - 22
+    end
+
+    -- Cancel Roll button (for ML when rolling)
+    if isML and item.rolling then
+        local cancelBtn = CreateFrame("Button", nil, panel)
+        cancelBtn:SetSize(65, 20)
+        cancelBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        local cancelBg = ColorTexture(cancelBtn, "BACKGROUND", 0.25, 0.15, 0.15, 0.8)
+        cancelBg:SetAllPoints(cancelBtn)
+        local cancelText = cancelBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        cancelText:SetPoint("CENTER", cancelBtn, "CENTER", 0, 0)
+        cancelText:SetText("End Roll")
+        cancelText:SetTextColor(1.0, 0.5, 0.5)
+        cancelBtn:SetScript("OnEnter", function() cancelBg:SetVertexColor(0.35, 0.25, 0.25, 0.8) end)
+        cancelBtn:SetScript("OnLeave", function() cancelBg:SetVertexColor(0.25, 0.15, 0.15, 0.8) end)
+        cancelBtn:SetScript("OnClick", function() LootyMasterLoot:EndRoll(itemIndex) end)
+        cancelBtn:Show()
+        rollY = rollY - 24
+    end
+
+    -- Roll list (if there are rolls)
+    if item.rolling and rollCount > 0 then
+        -- Sort rolls by value desc
+        local sortedRolls = {}
+        for playerName, rollInfo in pairs(item.rolls) do
+            table.insert(sortedRolls, { name = playerName, value = rollInfo.value })
+        end
+        table.sort(sortedRolls, function(a, b)
+            if a.value ~= b.value then return a.value > b.value end
+            return a.name < b.name
+        end)
+
+        -- Show top 3 rolls inline, rest in accordion
+        local maxInline = math.min(3, #sortedRolls)
+        local parts = {}
+        for i = 1, maxInline do
+            parts[#parts + 1] = sortedRolls[i].name .. "(" .. sortedRolls[i].value .. ")"
+        end
+
+        local rollLine = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rollLine:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        rollLine:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+        rollLine:SetJustifyH("LEFT")
+        rollLine:SetText(table.concat(parts, ", "))
+        rollLine:SetTextColor(1.0, 0.85, 0.2)
+        rollY = rollY - 16
+    end
+
+    -- Rerolls warning
+    if rerollCount > 0 then
+        local warnText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        warnText:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        warnText:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+        warnText:SetJustifyH("LEFT")
+        local rerollNames = {}
+        for playerName, rerollInfo in pairs(item.rerolls) do
+            rerollNames[#rerollNames + 1] = playerName .. "(" .. rerollInfo.value .. "⚠️)"
+        end
+        warnText:SetText("Re-rolls: " .. table.concat(rerollNames, ", "))
+        warnText:SetTextColor(1.0, 0.4, 0.2)
+        rollY = rollY - 16
+    end
+
+    -- Calculate height
+    local totalH = PANEL_PADDING * 2 - rollY
+    if totalH < iconH + PANEL_PADDING * 2 + 20 then
+        totalH = iconH + PANEL_PADDING * 2 + 20
+    end
+    panel:SetHeight(totalH)
+
+    panel:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+    panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+
+    return panel, totalH
+end
+
+-- ---- Master Loot timer update ----
+
+function UI:UpdateMasterLootTimer(itemIndex, remaining)
+    -- Timer is updated via OnUpdate in MasterLoot.lua, no need for UI refresh here
 end
 
 -- ---- Refresh the entire UI ----
@@ -848,8 +1127,74 @@ function UI:Refresh()
         end
 
         frame.tabs.history.text:SetText("History (" .. #completedRolls .. ")")
-    end
 
+    elseif currentTab == "master" then
+        local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
+        if mlCount > 0 and LootyMasterLoot then
+            for i, item in ipairs(LootyMasterLoot.items) do
+                if not item.isDone then
+                    local panel, panelH = BuildMasterItemPanel(content, item, i)
+                    yOffset = yOffset - panelH - 4
+                end
+            end
+        end
+
+        -- Show done items with reduced opacity
+        if LootyMasterLoot then
+            local doneItems = LootyMasterLoot:GetDoneItems()
+            if #doneItems > 0 then
+                local sepY = yOffset - 10
+                local sep = ColorTexture(content, "BORDER", 0.25, 0.25, 0.25, 0.4)
+                sep:SetPoint("TOPLEFT", content, "TOPLEFT", 4, sepY)
+                sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, sepY)
+                sep:SetHeight(1)
+                yOffset = sepY - 16
+
+                local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
+                doneLabel:SetText("Done (" .. #doneItems .. ")")
+                doneLabel:SetTextColor(0.4, 0.4, 0.4)
+                yOffset = yOffset - 16
+
+                for i, item in ipairs(doneItems) do
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, { isDone = true })
+                    yOffset = yOffset - panelH - 4
+                end
+
+                -- Clear Done button
+                local clearBtn = CreateFrame("Button", nil, content)
+                clearBtn:SetSize(80, 20)
+                clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
+                local clearBg = ColorTexture(clearBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.8)
+                clearBg:SetAllPoints(clearBtn)
+                local clearText = clearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                clearText:SetPoint("CENTER", clearBtn, "CENTER", 0, 0)
+                clearText:SetText("Clear Done")
+                clearText:SetTextColor(0.6, 0.6, 0.6)
+                clearBtn:SetScript("OnEnter", function() clearBg:SetVertexColor(0.25, 0.25, 0.25, 0.8) end)
+                clearBtn:SetScript("OnLeave", function() clearBg:SetVertexColor(0.15, 0.15, 0.15, 0.8) end)
+                clearBtn:SetScript("OnClick", function()
+                    LootyMasterLoot:ClearDone()
+                end)
+                yOffset = yOffset - 30
+            end
+        end
+
+        if mlCount == 0 and (not LootyMasterLoot or #LootyMasterLoot.items == 0) then
+            local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            empty:SetPoint("TOP", content, "TOP", 0, -40)
+            if LootyMasterLoot and LootyMasterLoot.active then
+                empty:SetText("No items looted yet — open a corpse with loot")
+            else
+                empty:SetText("Not in Master Loot mode")
+            end
+            empty:SetTextColor(0.35, 0.35, 0.35)
+            yOffset = yOffset - 50
+        end
+
+        -- Update master tab text
+        frame.tabs.master.text:SetText("Master: " .. mlCount)
+    end
     -- Always update both tab counts
     UI:UpdateTabCounts()
 

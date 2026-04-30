@@ -218,3 +218,79 @@ function Parser:ProcessMessage(message)
         DEFAULT_CHAT_FRAME:AddMessage("|cff666666[LOOTY PARSE]|r no match")
     end
 end
+
+-- ---- Master Loot: Process CHAT_MSG_SYSTEM for /roll messages ----
+
+function Parser:ProcessSystemMessage(message)
+    if not message then return end
+
+    -- Debug
+    if addon and addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY SYS]|r " .. message)
+    end
+
+    -- Try Master Loot /roll patterns
+    for _, pattern in ipairs(L.MASTER_ROLL_PATTERNS) do
+        local _, _, nameOrValue, valueStr, rangeMin, rangeMax = string.find(message, pattern)
+
+        -- Self-roll pattern: "Your roll for [Item] is 85 (1-100)"
+        if nameOrValue and rangeMin then
+            local value = tonumber(valueStr)
+            local rMin = tonumber(rangeMin)
+            local rMax = tonumber(rangeMax)
+
+            -- Validate range is 1-100 (standard roll)
+            if value and rMin == 1 and rMax == 100 and value >= 1 and value <= 100 then
+                if nameOrValue and not nameOrValue:find("^Your roll") then
+                    -- Other player: "PlayerName rolls 85 (1-100)"
+                    local playerName = nameOrValue
+                    if addon.db and addon.db.debug then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY SYS]|r /roll match: " .. playerName .. " = " .. value)
+                    end
+                    if LootyMasterLoot then
+                        LootyMasterLoot:RecordRoll(playerName, value, nil)
+                    end
+                    return
+                elseif nameOrValue:find("^Your roll") then
+                    -- Self roll
+                    local playerName = UnitName("player")
+                    if addon.db and addon.db.debug then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY SYS]|r /roll match (self): " .. playerName .. " = " .. value)
+                    end
+                    if LootyMasterLoot then
+                        LootyMasterLoot:RecordRoll(playerName, value, nil)
+                    end
+                    return
+                end
+            end
+        end
+    end
+
+    -- Not a roll message — check for "won" patterns in system chat
+    -- (some servers use CHAT_MSG_SYSTEM instead of CHAT_MSG_LOOT for winner)
+    -- 1. "X won: [ItemName]"
+    local _, _, winnerName, itemName = string.find(message, "^(.-) won:%s*(.+)$")
+    if winnerName and itemName then
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY SYS]|r WON match (system): " .. winnerName .. " -> " .. tostring(itemName))
+        end
+        local targetRollID = LootyParser:FindRollByItem(itemName)
+        if targetRollID then
+            local roll = addon:GetRoll(targetRollID)
+            if roll then
+                roll.winner = winnerName
+                addon:FinalizeRoll(targetRollID)
+            end
+        end
+        return
+    end
+
+    if addon and addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff666666[LOOTY SYS]|r no match")
+    end
+end
+
+-- Expose FindRollByItem for external use
+function Parser:FindRollByItem(itemName)
+    return FindRollByItem(itemName)
+end
