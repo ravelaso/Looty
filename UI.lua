@@ -608,9 +608,6 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     -- Helper: build player list for a section
     local function buildPlayerList(sectionType)
         local entries = rollsByType[sectionType]
-        if addon and addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r buildPlayerList: section=" .. sectionType .. " entries=" .. #entries .. " rollID=" .. rollData.rollID)
-        end
         local sectionColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
                              sectionType == "greed" and { 1.0, 0.85, 0.2 } or
                              sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
@@ -707,10 +704,6 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         else
             expandSection(sectionType)
         end
-        -- DEBUG
-        if addon and addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r Click: section=" .. sectionType .. " rollID=" .. rollData.rollID .. " expandedSections[" .. rollData.rollID .. "]=" .. tostring(expandedSections[rollData.rollID]))
-        end
         UI:Refresh()
     end
 
@@ -731,14 +724,8 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     -- Restore state from module-level storage, or auto-expand winner
     local savedState = expandedSections[rollData.rollID]
     if savedState and accordionTabs[savedState] then
-        if addon and addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r RESTORE: rollID=" .. rollData.rollID .. " section=" .. savedState)
-        end
         expandSection(savedState)
     elseif defaultExpanded then
-        if addon and addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r DEFAULT: rollID=" .. rollData.rollID .. " section=" .. defaultExpanded)
-        end
         expandSection(defaultExpanded)
     end
 
