@@ -608,6 +608,9 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     -- Helper: build player list for a section
     local function buildPlayerList(sectionType)
         local entries = rollsByType[sectionType]
+        if addon and addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ACCORD]|r buildPlayerList: section=" .. sectionType .. " entries=" .. #entries .. " rollID=" .. rollData.rollID)
+        end
         local sectionColor = sectionType == "need" and { 1.0, 0.35, 0.35 } or
                              sectionType == "greed" and { 1.0, 0.85, 0.2 } or
                              sectionType == "disenchant" and { 0.75, 0.5, 1.0 } or
