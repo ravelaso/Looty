@@ -291,152 +291,133 @@ function addon:InjectTestRolls()
     local now = GetTime()
 
     -- ============================================================
-    -- Active roll: Epic chest (raid scenario, many players rolling)
+    -- 25-player raid roster (WOTLK 3.3.5 composition):
+    --   Tanks (2): IronWall, ShieldBrk
+    --   Healers (6): HolyMend, ChainHeal, CircleHeal, Moonwell,
+    --                 LightWave, PrayHeal
+    --   Melee DPS (7): BloodStrike, ShadowDance, WindFury,
+    --                    Retrib, Eviscerate, MangleCat, FistOfRage
+    --   Ranged DPS (10): FrostBolt, StarFire, AimedShot, ShadowBolt,
+    --                     ArcaneX, MindFlay, MultiShot, CurseDot,
+    --                     PyroBlast, Boomkin
     -- ============================================================
+
+    -- ---- ACTIVE ROLL ----
+    -- Epic cloth chest (Vestments of Redemption T3)
+    -- Eligible for NEED: Priests, Warlocks, Mages (cloth wearers)
+    -- Greed: Anyone who can equip cloth (healers, casters, some hybrids)
+    -- Pass: Tanks, physical DPS who cannot/won't use cloth
+    --
+    -- Expected winner: MindFlay (Shadow Priest, need 96)
     self.activeRolls[9001] = {
         rollID = 9001,
-        name = "Vestments of the Devout",
-        link = "|cffa335ee|Hitem:21345:0:0:0:0:0:0:0:0|h[Vestments of the Devout]|h|r",
-        texture = "Interface\\Icons\\INV_Chest_Cloth_04",
+        name = "Vestments of Redemption",
+        link = "|cffa335ee|Hitem:23063:0:0:0:0:0:0:0:0|h[Vestments of Redemption]|h|r",
+        texture = "Interface\\Icons\\INV_Chest_Cloth_75",
         count = 1,
-        quality = 4, -- Epic
+        quality = 4, -- Epic (T3)
         startTime = now,
         duration = 90,
         rolls = {
-            -- Need
-            Buenclima  = { type = "need",  value = 87 },
-            ShadowMaw  = { type = "need",  value = 42 },
-            HealMePlz  = { type = "need",  value = 63 },
-            -- Greed
-            TankJoe    = { type = "greed", value = 91 },
-            DPSKing    = { type = "greed", value = 55 },
-            AltRoller  = { type = "greed", value = 33 },
-            -- Pass
-            WarriorK   = { type = "pass" },
-            MageBob    = { type = "pass" },
-            LockDash   = { type = "pass" },
-            RogueX     = { type = "pass" },
-            HunterAim  = { type = "pass" },
+            -- ---- TANKS (2) — cannot equip cloth, pass ----
+            IronWall  = { type = "pass" },
+            ShieldBrk = { type = "pass" },
+
+            -- ---- HEALERS (6) — can equip cloth, mostly greed ----
+            HolyMend   = { type = "greed", value = 12 },  -- Holy Paladin
+            ChainHeal  = { type = "greed", value = 38 },  -- Resto Shaman
+            CircleHeal = { type = "need",  value = 45 },  -- Disc Priest
+            Moonwell   = { type = "greed", value = 27 },  -- Resto Druid
+            LightWave  = { type = "greed", value = 61 },  -- Holy Paladin
+            PrayHeal   = { type = "need",  value = 73 },  -- Holy Priest
+
+            -- ---- MELEE DPS (7) — mostly pass, some greed ----
+            BloodStrike  = { type = "pass" },            -- DK (plate)
+            ShadowDance  = { type = "pass" },            -- Rogue (leather)
+            WindFury     = { type = "greed", value = 5 }, -- Shaman (mail)
+            Retrib       = { type = "pass" },            -- Paladin (plate)
+            Eviscerate   = { type = "pass" },            -- Rogue (leather)
+            MangleCat    = { type = "greed", value = 8 }, -- Druid (leather)
+            FistOfRage   = { type = "pass" },            -- Warrior (plate)
+
+            -- ---- RANGED DPS (10) — casters need, others pass/greed ----
+            FrostBolt  = { type = "need", value = 55 },  -- Mage
+            StarFire   = { type = "greed", value = 42 }, -- Balance Druid
+            AimedShot  = { type = "pass" },              -- Hunter (mail)
+            ShadowBolt = { type = "need", value = 88 },  -- Warlock
+            ArcaneX    = { type = "need", value = 67 },  -- Mage
+            MindFlay   = { type = "need", value = 96 },  -- Shadow Priest → WINNER
+            MultiShot  = { type = "pass" },              -- Hunter (mail)
+            CurseDot   = { type = "greed", value = 19 }, -- Warlock
+            PyroBlast  = { type = "need", value = 81 },  -- Mage
+            Boomkin    = { type = "greed", value = 34 }, -- Balance Druid
         },
     }
 
-    -- ============================================================
-    -- Active roll: Rare weapon (fewer eligible players)
-    -- ============================================================
-    self.activeRolls[9002] = {
-        rollID = 9002,
-        name = "Blessed Claymore",
-        link = "|cff0070dd|Hitem:16890:0:0:0:0:0:0:0:0|h[Blessed Claymore]|h|r",
-        texture = "Interface\\Icons\\INV_Sword_25",
-        count = 1,
-        quality = 3, -- Rare
-        startTime = now + 5,
-        duration = 90,
-        rolls = {
-            TankJoe   = { type = "need",  value = 74 },
-            Buenclima = { type = "greed", value = 48 },
-            DPSKing   = { type = "greed", value = 22 },
-            WarriorK  = { type = "need",  value = 66 },
+    -- ---- COMPLETED ROLL (History) ----
+    -- Epic caster staff (Staff of Disruption)
+    -- Eligible for NEED: All casters and healers (INT/stamina caster weapon)
+    -- Greed: Hybrids who can use staves
+    -- Disenchant: Enchanters wanting shards
+    -- Pass: Physical DPS, tanks
+    --
+    -- Expected winner: ShadowBolt (need 86, highest need)
+    self.completedRolls = {
+        {
+            rollID = 8001,
+            name = "Staff of Disruption",
+            link = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of Disruption]|h|r",
+            texture = "Interface\\Icons\\INV_Staff_13",
+            count = 1,
+            quality = 4, -- Epic
+            startTime = now - 180,
+            duration = 90,
+            rolls = {
+                -- ---- TANKS (2) — pass ----
+                IronWall  = { type = "pass" },
+                ShieldBrk = { type = "pass" },
+
+                -- ---- HEALERS (6) — all need caster weapons ----
+                HolyMend   = { type = "need", value = 33 },  -- Holy Paladin
+                ChainHeal  = { type = "greed", value = 91 }, -- Resto Shaman → WINNER (greed, no higher need)
+                CircleHeal = { type = "need", value = 57 },  -- Disc Priest
+                Moonwell   = { type = "need", value = 44 },  -- Resto Druid
+                LightWave  = { type = "need", value = 28 },  -- Holy Paladin
+                PrayHeal   = { type = "need", value = 62 },  -- Holy Priest
+
+                -- ---- MELEE DPS (7) — mostly pass, some disenchant ----
+                BloodStrike  = { type = "pass" },               -- DK
+                ShadowDance  = { type = "pass" },               -- Rogue
+                WindFury     = { type = "disenchant", value = 47 }, -- Shaman (enchanter)
+                Retrib       = { type = "pass" },               -- Paladin
+                Eviscerate   = { type = "pass" },               -- Rogue
+                MangleCat    = { type = "pass" },               -- Druid
+                FistOfRage   = { type = "disenchant", value = 55 }, -- Warrior (enchanter)
+
+                -- ---- RANGED DPS (10) — casters need, others mixed ----
+                FrostBolt  = { type = "need", value = 79 },    -- Mage
+                StarFire   = { type = "need", value = 41 },    -- Balance Druid
+                AimedShot  = { type = "pass" },                -- Hunter
+                ShadowBolt = { type = "need", value = 86 },    -- Warlock
+                ArcaneX    = { type = "need", value = 64 },    -- Mage
+                MindFlay   = { type = "need", value = 53 },    -- Shadow Priest
+                MultiShot  = { type = "pass" },                -- Hunter
+                CurseDot   = { type = "need", value = 38 },    -- Warlock
+                PyroBlast  = { type = "disenchant", value = 72 }, -- Mage (enchanter)
+                Boomkin    = { type = "greed", value = 15 },   -- Balance Druid
+            },
         },
     }
 
-    -- ============================================================
-    -- Active roll: Epic ring (high demand)
-    -- ============================================================
-    self.activeRolls[9003] = {
-        rollID = 9003,
-        name = "Band of Forced Concentration",
-        link = "|cffa335ee|Hitem:22734:0:0:0:0:0:0:0:0|h[Band of Forced Concentration]|h|r",
-        texture = "Interface\\Icons\\INV_Jewelry_Ring_15",
-        count = 1,
-        quality = 4, -- Epic
-        startTime = now + 10,
-        duration = 90,
-        rolls = {
-            -- Need (all casters/healers)
-            HealMePlz   = { type = "need",  value = 95 },
-            ShadowMaw   = { type = "need",  value = 34 },
-            MageBob     = { type = "need",  value = 78 },
-            LockDash    = { type = "need",  value = 67 },
-            -- Greed (everyone else hoping)
-            TankJoe     = { type = "greed", value = 82 },
-            WarriorK    = { type = "greed", value = 44 },
-            DPSKing     = { type = "greed", value = 19 },
-            RogueX      = { type = "greed", value = 71 },
-            -- Disenchant
-            AltRoller   = { type = "disenchant", value = 50 },
-        },
-    }
+    self:Print("Test data injected — 1 active roll + 1 history (25-player raid, all voted).")
 
-    -- ============================================================
-    -- Completed rolls (history)
-    -- ============================================================
+    -- Auto-show window
+    if LootyFrame and not LootyFrame:IsShown() then
+        LootyFrame:Show()
+    end
 
-    -- Epic weapon
-    table.insert(self.completedRolls, {
-        rollID = 8001,
-        name = "Spinal Crusher",
-        link = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
-        texture = "Interface\\Icons\\INV_Mace_36",
-        count = 1,
-        quality = 4, -- Epic
-        startTime = now - 120,
-        duration = 90,
-        rolls = {
-            TankJoe    = { type = "need",  value = 55 },
-            WarriorK   = { type = "need",  value = 73 },
-            Buenclima  = { type = "greed", value = 88 },
-            DPSKing    = { type = "greed", value = 41 },
-            ShadowMaw  = { type = "disenchant", value = 30 },
-            AltRoller  = { type = "disenchant", value = 62 },
-            RogueX     = { type = "pass" },
-            MageBob    = { type = "pass" },
-            LockDash   = { type = "pass" },
-            HealMePlz  = { type = "pass" },
-        },
-    })
-
-    -- Rare armor
-    table.insert(self.completedRolls, {
-        rollID = 8002,
-        name = "Pioneer Trousers of the Monkey",
-        link = "|cff1eff00|Hitem:22222:0:0:0:0:0:0:0:0|h[Pioneer Trousers of the Monkey]|h|r",
-        texture = "Interface\\Icons\\INV_Pants_06",
-        count = 1,
-        quality = 2, -- Uncommon
-        startTime = now - 300,
-        duration = 90,
-        rolls = {
-            Buenclima = { type = "greed", value = 88 },
-            RogueX    = { type = "greed", value = 33 },
-            HunterAim = { type = "need",  value = 76 },
-            TankJoe   = { type = "pass" },
-        },
-    })
-
-    -- Epic trinket (won by disenchanter)
-    table.insert(self.completedRolls, {
-        rollID = 8003,
-        name = "Mark of the Champion",
-        link = "|cffa335ee|Hitem:23207:0:0:0:0:0:0:0:0|h[Mark of the Champion]|h|r",
-        texture = "Interface\\Icons\\INV_Trinket_Naxxramas06",
-        count = 1,
-        quality = 4, -- Epic
-        startTime = now - 600,
-        duration = 90,
-        rolls = {
-            HealMePlz   = { type = "need",  value = 44 },
-            ShadowMaw   = { type = "need",  value = 29 },
-            AltRoller   = { type = "disenchant", value = 85 },
-            LockDash    = { type = "disenchant", value = 51 },
-            TankJoe     = { type = "pass" },
-            WarriorK    = { type = "pass" },
-            DPSKing     = { type = "pass" },
-            Buenclima   = { type = "pass" },
-        },
-    })
-
-    self:Print("Test data injected — 3 active rolls (25-man raid), 3 in history.")
+    LootyUI:Refresh()
+end
 
     -- Auto-show window
     if LootyFrame and not LootyFrame:IsShown() then
