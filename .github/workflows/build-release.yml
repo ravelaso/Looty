@@ -1,0 +1,98 @@
+name: Build and Release Looty
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare addon directory
+        run: |
+          # WoW addon folder name must match the .toc filename (without extension)
+          mkdir -p "build/Looty"
+
+          TOC_FILE="Looty.toc"
+
+          # Copy the .toc file
+          cp "$TOC_FILE" "build/Looty/Looty.toc"
+
+          # Parse .toc file and copy all referenced files
+          # .toc uses Windows backslashes, convert to forward slashes for Linux
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            # Skip comments and empty lines
+            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+            # Skip metadata lines (##)
+            [[ "$line" =~ ^##.*$ ]] && continue
+
+            # Convert Windows backslashes to forward slashes
+            line_normalized="${line//\\//}"
+
+            # Copy the file
+            if [ -f "$line_normalized" ]; then
+              dir=$(dirname "$line_normalized")
+              mkdir -p "build/Looty/$dir"
+              cp "$line_normalized" "build/Looty/$line_normalized"
+              echo "Copied: $line_normalized"
+            else
+              echo "Warning: File not found: $line_normalized (original: $line)"
+            fi
+          done < "$TOC_FILE"
+
+          echo "Contents of build directory:"
+          find "build/Looty" -type f | sort
+
+      - name: Create ZIP
+        run: |
+          cd build
+          zip -r "Looty.zip" "Looty"
+          mv "Looty.zip" ..
+          cd ..
+
+          echo "=== ZIP contents ==="
+          unzip -l "Looty.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Looty
+          path: Looty.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: |
+          echo "=== Files in artifacts directory ==="
+          find artifacts -type f -name "*.zip"
+          echo "=== Directory structure ==="
+          ls -la artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

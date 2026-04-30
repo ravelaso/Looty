@@ -2,7 +2,7 @@
 ## Title: Looty
 ## Notes: Tracks group loot rolls in a compact window.
 ## Author: Ravelo
-## Version: 0.1.0
+## Version: 1.0.0
 ## SavedVariables: Looty_SavedVars
 
 Locales\enUS.lua
