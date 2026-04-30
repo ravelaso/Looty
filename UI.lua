@@ -413,6 +413,17 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     opts = opts or {}
     local isHistory = opts.isHistory or false
 
+    -- DEBUG: dump roll data
+    if addon and addon.db and addon.db.debug then
+        local dump = "rolls={"
+        for pn, info in pairs(rollData.rolls or {}) do
+            local v = type(info) == "table" and (info.value or "nil") or info
+            dump = dump .. pn .. ":" .. v .. ","
+        end
+        dump = dump .. "}"
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r " .. rollData.name .. " | " .. dump .. " | hist=" .. tostring(isHistory))
+    end
+
     local panel = CreateFrame("Frame", nil, content)
     local contentWidth = content:GetWidth()
     panel:SetWidth(contentWidth)
@@ -593,6 +604,17 @@ function UI:Refresh()
 
     local content = frame.content
     local contentWidth = frame:GetWidth() - CONTENT_MARGIN * 2 - SCROLL_BAR_WIDTH - 2
+
+    -- DEBUG: dump state
+    if addon and addon.db and addon.db.debug then
+        local ar = addon:GetAllActiveRolls()
+        local cr = addon:GetCompletedRolls()
+        local activeIds = ""
+        for _, r in ipairs(ar) do activeIds = activeIds .. r.rollID .. "(" .. r.name .. ")," end
+        local compIds = ""
+        for _, r in ipairs(cr) do compIds = compIds .. r.rollID .. "(" .. r.name .. ")," end
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r Refresh: tab=" .. currentTab .. " active=" .. #ar .. " [" .. activeIds .. "] history=" .. #cr .. " [" .. compIds .. "]")
+    end
 
     -- Clear all children
     for _, child in ipairs({ content:GetChildren() }) do

@@ -9,6 +9,7 @@ local DEFAULT_SAVED = {
     windowPos = { x = nil, y = nil },
     windowSize = { w = nil, h = nil },
     locked = false,
+    debug = false,
 }
 
 -- Active rolls keyed by rollID
@@ -161,21 +162,28 @@ end
 function addon:RecordRoll(rollID, playerName, rollType, value)
     local roll = self.activeRolls[rollID]
     if not roll then
+        if self.db and self.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY CORE]|r RecordRoll FAILED — no active roll " .. rollID)
+        end
         return false
     end
 
     -- If player already has an entry, only overwrite if it has no value yet
-    -- (selection message arrived before roll result)
     local existing = roll.rolls[playerName]
     if existing then
         local existingInfo = type(existing) == "table" and existing or { type = existing, value = nil }
         if existingInfo.value then
-            return false -- already has a value, skip
+            if self.db and self.db.debug then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY CORE]|r RecordRoll SKIPPED — " .. playerName .. " already has value")
+            end
+            return false
         end
-        -- No value yet — replace with full entry
     end
 
     roll.rolls[playerName] = { type = rollType, value = value or nil }
+    if self.db and self.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY CORE]|r RecordRoll OK — " .. playerName .. " type=" .. rollType .. " val=" .. tostring(value) .. " on roll " .. rollID .. " (" .. roll.name .. ")")
+    end
     LootyUI:Refresh()
     return true
 end
@@ -251,12 +259,16 @@ SlashCmdList["LOOTY"] = function(msg)
         LootyUI:Refresh()
     elseif msg == "test" then
         addon:InjectTestRolls()
+    elseif msg == "debug" then
+        addon.db.debug = not addon.db.debug
+        addon:Print("Debug " .. (addon.db.debug and "ON" or "OFF"))
     else
         addon:Print("Commands:")
         addon:Print("  /looty        - Toggle window")
         addon:Print("  /looty lock   - Toggle window lock (dragging)")
         addon:Print("  /looty clear  - Clear completed roll history")
         addon:Print("  /looty test   - Inject mock rolls for testing")
+        addon:Print("  /looty debug  - Toggle data debug")
     end
 end
 
