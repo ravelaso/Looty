@@ -97,6 +97,7 @@ local function CheckIsML()
     --   masterlooterPartyID = 0 means THIS PLAYER is ML
     --   masterlooterPartyID = 1-4 means party member 1-4 is ML
     --   masterlooterRaidID = raid index or nil
+    -- TODO: Check for current player raidID and compare with masterlooterPartyID: see https://web.archive.org/web/20100513002458/http://wowprogramming.com/docs/api/GetLootMethod
     if masterlooterPartyID == 0 then
         MasterLoot.isML = true
         return true
