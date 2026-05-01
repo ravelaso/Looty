@@ -8,40 +8,150 @@ local L = Looty_L
 local MasterLoot = {}
 LootyMasterLoot = MasterLoot
 
--- State
-MasterLoot.active = false       -- Is Master Loot mode active?
-MasterLoot.items = {}           -- Array of item entries
-MasterLoot.currentRoll = nil    -- Index of item currently rolling
-MasterLoot.rollTimer = nil      -- Frame for roll countdown
-MasterLoot.rollDuration = 30    -- Seconds for each roll
-MasterLoot.isML = false         -- Is current player the Master Looter?
+-- ---- State ----
 
--- Remote state (for non-ML clients receiving sync from ML)
-MasterLoot.remoteMode = false    -- Are we in remote spectator mode?
-MasterLoot.remoteItems = {}      -- Mirror of ML's items (indexed by index)
-MasterLoot.remoteML = nil        -- Name of ML we're tracking
+-- Loot method state (set independently of role)
+MasterLoot.lootMethod         = nil    -- Raw value from GetLootMethod(): "master"|"group"|etc.
+MasterLoot.isMasterLootActive = false  -- true when lootMethod == "master"
 
--- Throttle for sending messages (rate limit protection)
--- WoW 3.3.5 has rate limiting on SendAddonMessage - sending too many
--- messages too fast can disconnect the player. We use 0.5s between messages.
--- Items are queued and sent one by one with this delay.
-MasterLoot.msgThrottle = 0.5    -- Min seconds between auto-messages
-MasterLoot.lastMsgTime = 0      -- Timestamp of last message sent
-MasterLoot.pendingItems = {}     -- Queue for items waiting to be sent
-MasterLoot.sendTimer = nil       -- Timer frame for throttled sending
+-- Role of the current player within this loot session:
+--   "MasterLooter" → this player is the ML
+--   "Raider"       → loot is master but this player is not the ML
+--   nil            → not in master loot mode
+MasterLoot.role = nil
+
+-- Legacy aliases kept for backward compat with UI / external code.
+-- These are DERIVED from role/isMasterLootActive — never set directly.
+MasterLoot.active = false   -- true when isMasterLootActive
+MasterLoot.isML   = false   -- true when role == "MasterLooter"
+
+-- ML-side item list and roll tracking
+MasterLoot.items       = {}   -- Array of item entries (ML only)
+MasterLoot.currentRoll = nil  -- Index of item currently rolling
+MasterLoot.rollTimer   = nil  -- Frame for roll countdown
+MasterLoot.rollDuration = 30  -- Seconds for each roll
+
+-- Remote state (for Raider clients receiving sync from ML)
+MasterLoot.remoteMode  = false  -- true once role is "Raider" and ML mode is active
+MasterLoot.remoteItems = {}     -- Mirror of ML's items (indexed by item index)
+MasterLoot.remoteML    = nil    -- Name of the ML we are tracking
+
+-- Throttle for SendAddonMessage (WoW 3.3.5 rate-limit protection).
+-- Items are queued and sent one by one with a 0.5 s gap.
+MasterLoot.msgThrottle  = 0.5  -- Min seconds between auto-messages
+MasterLoot.lastMsgTime  = 0    -- Timestamp of last message sent
+MasterLoot.pendingItems = {}   -- Queue for messages waiting to be sent
+MasterLoot.sendTimer    = nil  -- Timer frame for throttled sending
 
 -- Message Protocol (prefix: "LOOTY")
--- ITEM|index|link|texture|quality|name  → One per item, 0.5s apart
--- ROLL_START|index                      → Roll started for item
--- ROLL_END|index|winnerName          → Roll ended, winner announced
--- ITEM_DONE|index                      → Item marked as done
--- CLEAR                               → All items cleared (ML mode off)
+-- Field separator: \001 (ASCII SOH) — cannot appear in item links or names.
+-- ITEM\001index\001link\001texture\001quality\001name  → One per item, 0.5 s apart
+-- ROLL_START\001index                                  → Roll started for item
+-- ROLL_END\001index\001winnerName                      → Roll ended, winner announced
+-- ITEM_DONE\001index                                   → Item marked as done
+-- CLEAR                                                → All items cleared (ML mode off)
 
--- ---- Message Sending (ML side) ----
+-- ============================================================
+-- ---- Internal helpers: loot method and ML detection ----
+-- ============================================================
+
+-- Returns the raw loot method string from the API.
+local function DetectLootMethod()
+    local method = GetLootMethod()
+    return method
+end
+
+-- Returns true if THIS player is the Master Looter.
+--
+-- Authoritative source: wowprogramming.com Wayback Machine, May 2010 (3.3.5 era)
+--   partyMaster == 0    → THIS player is ML (only reliable in party, or same subgroup in raid)
+--   partyMaster == nil  → ML is not in this player's party subgroup (common in raids)
+--   raidMaster  == N    → raid index of the ML in a raid group
+--
+-- Correct pattern (verified against epgp, a real 3.3.5 addon):
+--   In a raid:  resolve ML name via GetRaidRosterInfo(raidMaster), compare to UnitName("player")
+--   In a party: partyMaster == 0 means this player is ML
+--               partyMaster 1-4 means party member N is ML
+--
+-- DO NOT compare UnitInRaid("player") == raidMaster — UnitInRaid returns a 0-based
+-- index internally and its relationship to raidMaster is unreliable across subgroups.
+-- Name comparison is the only safe cross-context method.
+local function DetectIsML()
+    local method, partyMaster, raidMaster = GetLootMethod()
+    if method ~= "master" then return false end
+
+    local myName = UnitName("player")
+
+    if raidMaster then
+        -- Raid context: get the ML's actual name from the roster and compare
+        local mlName = GetRaidRosterInfo(raidMaster)
+        return mlName == myName
+    end
+
+    if partyMaster == 0 then
+        -- Party context: 0 unambiguously means this player is the ML
+        return true
+    end
+
+    return false
+end
+
+-- ============================================================
+-- ---- ResolveRole: single source of truth for role state ----
+-- ============================================================
+
+-- Call this whenever the loot method may have changed:
+--   Initialize(), OnLootMethodChanged(), OnLootOpened()
+--
+-- Sets: lootMethod, isMasterLootActive, role, active, isML, remoteMode
+function MasterLoot:ResolveRole()
+    local method = DetectLootMethod()
+    self.lootMethod         = method
+    self.isMasterLootActive = (method == "master")
+
+    -- Not in master loot mode at all — clear everything
+    if not self.isMasterLootActive then
+        self.role   = nil
+        self.active = false
+        self.isML   = false
+        -- remoteMode/remoteML are cleared by the caller (OnLootMethodChanged)
+        -- so that the CLEAR sync message can be sent first.
+        return
+    end
+
+    -- Master loot is active — now determine our role
+    self.active = true
+
+    if DetectIsML() then
+        self.role       = "MasterLooter"
+        self.isML       = true
+        self.remoteMode = false  -- ML never operates in remote mode
+    else
+        self.role       = "Raider"
+        self.isML       = false
+        self.remoteMode = true   -- Raider is always in receive mode when ML is active
+    end
+
+    if addon.db and addon.db.debug then
+        local _, partyID, raidID = GetLootMethod()
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ML]|r ResolveRole: method=%s partyID=%s raidID=%s role=%s",
+            tostring(method), tostring(partyID), tostring(raidID), tostring(self.role)))
+    end
+end
+
+-- ============================================================
+-- ---- Message Sending (ML side only) ----
+-- ============================================================
 
 function MasterLoot:SendThrottledMessage(msg)
-    if not self.isML then return end
-    -- Add to queue
+    if not self.isML then
+        if addon.db and addon.db.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(
+                "|cff00ff00[LOOTY ML]|r SendThrottledMessage SKIPPED — isML=false msg=" .. tostring(msg):sub(1, 40))
+        end
+        return
+    end
     table.insert(self.pendingItems, msg)
     self:ProcessSendQueue()
 end
@@ -49,10 +159,10 @@ end
 function MasterLoot:ProcessSendQueue()
     if #self.pendingItems == 0 then return end
     if GetTime() - self.lastMsgTime < self.msgThrottle then
-        -- Schedule timer to try again
+        -- Schedule a timer to retry
         if not self.sendTimer then
             self.sendTimer = CreateFrame("Frame")
-            self.sendTimer:SetScript("OnUpdate", function(self)
+            self.sendTimer:SetScript("OnUpdate", function()
                 MasterLoot:ProcessSendQueue()
             end)
         end
@@ -60,305 +170,266 @@ function MasterLoot:ProcessSendQueue()
         return
     end
 
-    -- Send next message
     local msg = table.remove(self.pendingItems, 1)
-    SendAddonMessage("LOOTY", msg, "RAID")
+    -- Use "RAID" when in a raid group, "PARTY" otherwise.
+    -- In WoW 3.3.5, "RAID" does NOT reliably fall back to "PARTY" on all
+    -- server implementations, so we must pick the correct channel explicitly.
+    -- IsInRaid() does not exist in 3.3.5 — use GetNumRaidMembers() instead.
+    local channel = (GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    if addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ML]|r SEND channel=%s msg=%.50s",
+            channel, msg))
+    end
+    SendAddonMessage("LOOTY", msg, channel)
     self.lastMsgTime = GetTime()
 
-    -- If more items, will be picked up on next OnUpdate
     if #self.pendingItems == 0 and self.sendTimer then
         self.sendTimer:Hide()
     end
 end
 
+-- Field separator: ASCII \001 (SOH).
+-- Cannot appear in item links, texture paths, quality digits, or item names.
+-- This avoids the pipe-escaping problem entirely — WoW item links contain many
+-- literal | characters (|c color codes, |H hyperlinks, |h display text, |r reset)
+-- that would collide with any pipe-based delimiter scheme.
+local SEP = "\001"
+
 function MasterLoot:SerializeItem(item, index)
-    -- Compact format: ITEM|index|link|texture|quality|name
-    -- Escape pipe characters in link (safety measure)
-    local link = string.gsub(item.link or "", "|", "||")
+    -- Format: ITEM\001index\001link\001texture\001quality\001name
+    -- No escaping needed — SEP (\001) never appears in any of these fields.
+    local link    = item.link or ""
     local texture = item.texture or ""
     local quality = tostring(item.quality or 2)
-    local name = item.name or "Unknown"
-
-    return string.format("ITEM|%d|%s|%s|%s|%s",
-        index, link, texture, quality, name)
+    local name    = item.name or "Unknown"
+    return "ITEM" .. SEP .. index .. SEP .. link .. SEP .. texture .. SEP .. quality .. SEP .. name
 end
 
--- ---- Helper: check if player is Master Looter ----
+-- ============================================================
+-- ---- Lifecycle ----
+-- ============================================================
 
-local function CheckIsML()
-    local method, masterlooterPartyID, masterlooterRaidID = GetLootMethod()
-    if method ~= "master" then
-        MasterLoot.isML = false
-        return false
-    end
-
-    -- In WOTLK 3.3.5, GetLootMethod() returns NUMBERS for ML identity,
-    -- NOT names:
-    --   masterlooterPartyID = 0 means THIS PLAYER is ML
-    --   masterlooterPartyID = 1-4 means party member 1-4 is ML
-    --   masterlooterRaidID = raid index or nil
-    -- TODO: Check for current player raidID and compare with masterlooterPartyID: see https://web.archive.org/web/20100513002458/http://wowprogramming.com/docs/api/GetLootMethod
-    if masterlooterPartyID == 0 then
-        MasterLoot.isML = true
-        return true
-    end
-
-    -- In a raid, check if raid index matches our own
-    if masterlooterRaidID and UnitIsRaidMember("player") then
-        for i = 1, GetNumGroupMembers() do
-            if UnitName("raid" .. i) == UnitName("player") then
-                MasterLoot.isML = (masterlooterRaidID == i)
-                return MasterLoot.isML
-            end
-        end
-    end
-
-    -- Fallback: party member is ML (not us)
-    MasterLoot.isML = false
-    return false
-end
-
--- ---- Initialize: called on PLAYER_LOGIN to set initial state ----
-
+-- Called on PLAYER_LOGIN to set initial state.
 function MasterLoot:Initialize()
-    -- Check if we're already in Master Loot mode at login
-    -- (PARTY_LOOT_METHOD_CHANGED may not have fired since login)
-    local method, partyID, raidID = GetLootMethod()
-    if method == "master" then
-        MasterLoot.active = true
-        CheckIsML()
-        if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(string.format(
-                "|cff00ff00[LOOTY ML]|r ML at login: method=%s partyID=%s raidID=%s isML=%s",
-                tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML)))
-        end
-    else
-        MasterLoot.active = false
-        MasterLoot.isML = false
-        if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(string.format(
-                "|cff00ff00[LOOTY ML]|r Not ML at login: method=%s partyID=%s raidID=%s",
-                tostring(method), tostring(partyID), tostring(raidID)))
-        end
+    self:ResolveRole()
+
+    if addon.db and addon.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ML]|r Initialize complete: role=%s active=%s isML=%s remoteMode=%s",
+            tostring(self.role), tostring(self.active),
+            tostring(self.isML), tostring(self.remoteMode)))
     end
 end
 
+-- ============================================================
 -- ---- Event: PARTY_LOOT_METHOD_CHANGED ----
+-- ============================================================
 
 function MasterLoot:OnLootMethodChanged()
-    local method, partyID, raidID = GetLootMethod()
-    local wasActive = MasterLoot.active
+    local wasActive = self.active
 
-    if method == "master" then
-        MasterLoot.active = true
-        CheckIsML()
-        if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(string.format(
-                "|cff00ff00[LOOTY ML]|r Master Loot activated: method=%s partyID=%s raidID=%s isML=%s",
-                tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML)))
-        end
-    else
-        MasterLoot.active = false
-        MasterLoot.items = {}
-        MasterLoot.currentRoll = nil
-        MasterLoot.rollTimer = nil
+    -- Send CLEAR before wiping state so the ML flag is still true during send
+    local wasML = self.isML
+    local newMethod = DetectLootMethod()
 
-        -- Sync: notify raid members that ML mode is off (ML only)
-        if MasterLoot.isML then
-            MasterLoot:SendThrottledMessage("CLEAR")
+    if newMethod ~= "master" then
+        -- Notify raid that ML mode is off (ML only, while isML is still true)
+        if wasML then
+            self:SendThrottledMessage("CLEAR")
         end
 
-        -- Clear remote state if we were in remote mode (non-ML clients)
-        if MasterLoot.remoteMode then
-            MasterLoot.remoteItems = {}
-            MasterLoot.remoteMode = false
-            MasterLoot.remoteML = nil
-        end
-
-        if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Master Loot mode deactivated.")
-        end
+        -- Clear all state
+        self.items       = {}
+        self.currentRoll = nil
+        self.rollTimer   = nil
+        self.remoteItems = {}
+        self.remoteMode  = false
+        self.remoteML    = nil
     end
 
-    if wasActive ~= MasterLoot.active then
-        -- Switch to Master tab when mode changes
+    -- Now resolve the new role (also clears active/isML if not master)
+    self:ResolveRole()
+
+    -- Switch tabs on mode change
+    if wasActive ~= self.active then
         if LootyUI and LootyUI.SwitchTab then
-            if MasterLoot.active then
+            if self.active then
                 LootyUI:SwitchTab("master")
             elseif LootyUI.currentTab == "master" then
                 LootyUI:SwitchTab("grouplot")
             end
         end
+    end
+
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
 end
 
--- ---- Message Receiving (All clients) ----
+-- ============================================================
+-- ---- Message Receiving (Raider side) ----
+-- ============================================================
 
 function MasterLoot:DeserializeItem(message)
-    -- Parse: ITEM|index|link|texture|quality|name
-    -- Link may contain escaped pipes (||), need to handle carefully
-    local header, rest = string.match(message, "^ITEM|(.+)$")
-    if not header then return nil end
+    -- Format: ITEM\001index\001link\001texture\001quality\001name
+    -- SEP is \001 — split cleanly with no pipe-escaping complications.
+    if not string.find(message, "^ITEM" .. SEP) then return nil end
 
-    -- Split by | but respect escaped ||
     local parts = {}
-    local current = ""
-    local i = 1
-    while i <= #rest do
-        local char = string.sub(rest, i, i)
-        if char == "|" and i < #rest and string.sub(rest, i+1, i+1) == "|" then
-            current = current .. "|"
-            i = i + 2
-        elseif char == "|" then
-            table.insert(parts, current)
-            current = ""
-            i = i + 1
-        else
-            current = current .. char
-            i = i + 1
-        end
+    -- strsplit does not exist in all Lua environments; use gmatch with SEP
+    -- Note: string.gmatch pattern-escaping — \001 has no special meaning in
+    -- Lua patterns so it can be used directly as a literal character.
+    for segment in string.gmatch(message, "[^" .. SEP .. "]+") do
+        table.insert(parts, segment)
     end
-    table.insert(parts, current)  -- Last part
+    -- parts[1] = "ITEM", parts[2] = index, parts[3] = link, parts[4] = texture,
+    -- parts[5] = quality, parts[6] = name
+    if #parts < 6 then return nil end
 
-    if #parts < 5 then return nil end
-
+    local idx = tonumber(parts[2])
     return {
-        index = tonumber(parts[1]),
-        link = string.gsub(parts[2], "||", "|"),  -- Unescape
-        texture = parts[3],
-        quality = tonumber(parts[4]) or 2,
-        name = parts[5],
-        -- Initialize other fields
-        slot = tonumber(parts[1]) or 0,
-        quantity = 1,
-        rolls = {},
-        rerolls = {},
-        rolling = false,
+        index     = idx,
+        link      = parts[3],
+        texture   = parts[4],
+        quality   = tonumber(parts[5]) or 2,
+        name      = parts[6],
+        slot      = idx or 0,
+        quantity  = 1,
+        rolls     = {},
+        rerolls   = {},
+        rolling   = false,
         rollStart = nil,
-        isDone = false,
-        winner = nil,
+        isDone    = false,
+        winner    = nil,
     }
 end
 
 function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
-    -- Only process messages for Looty
     if prefix ~= "LOOTY" then return end
-    -- ML doesn't process own messages
+    -- ML ignores its own broadcast messages
     if self.isML then return end
 
-    -- Set remote mode on first ITEM received
-    if not self.remoteMode and string.find(message, "^ITEM|") then
-        self.remoteMode = true
+    -- When we receive the first ITEM sync, record who the ML is
+    local itemPrefix = "ITEM" .. SEP
+    if string.sub(message, 1, #itemPrefix) == itemPrefix and not self.remoteML then
         self.remoteML = sender
         if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Remote mode activated, ML: " .. sender)
+            DEFAULT_CHAT_FRAME:AddMessage(
+                "|cff00ff00[LOOTY ML]|r Raider: first ITEM received, ML is " .. sender)
         end
     end
 
-    -- Parse commands
-    if string.find(message, "^ITEM|") then
+    -- Dispatch by message type
+    if string.sub(message, 1, #itemPrefix) == itemPrefix then
         local item = self:DeserializeItem(message)
         if item then
             self.remoteItems[item.index] = item
             if addon.db and addon.db.debug then
-                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Received item: " .. item.name)
+                DEFAULT_CHAT_FRAME:AddMessage(
+                    "|cff00ff00[LOOTY ML]|r Raider: received item " .. item.name)
             end
         end
-    elseif string.find(message, "^ROLL_START|") then
-        local _, _, idx = string.find(message, "ROLL_START|(%d+)")
-        idx = tonumber(idx)
+
+    elseif string.sub(message, 1, 11) == "ROLL_START" .. SEP then
+        local idx = tonumber(string.sub(message, 12))
         if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].rolling = true
+            self.remoteItems[idx].rolling   = true
             self.remoteItems[idx].rollStart = GetTime()
-            self.remoteItems[idx].rolls = {}
-            self.remoteItems[idx].rerolls = {}
+            self.remoteItems[idx].rolls     = {}
+            self.remoteItems[idx].rerolls   = {}
         end
-    elseif string.find(message, "^ROLL_END|") then
-        local _, _, idx, winner = string.find(message, "ROLL_END|(%d+)|(.+)")
-        idx = tonumber(idx)
+
+    elseif string.sub(message, 1, 9) == "ROLL_END" .. SEP then
+        local rest   = string.sub(message, 10)
+        local sepPos = string.find(rest, SEP, 1, true)
+        local idx, winner
+        if sepPos then
+            idx    = tonumber(string.sub(rest, 1, sepPos - 1))
+            winner = string.sub(rest, sepPos + 1)
+        else
+            idx = tonumber(rest)
+        end
         if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].rolling = false
+            self.remoteItems[idx].rolling   = false
             self.remoteItems[idx].rollStart = nil
-            self.remoteItems[idx].winner = winner ~= "none" and winner or nil
+            self.remoteItems[idx].winner    = (winner and winner ~= "none") and winner or nil
         end
-    elseif string.find(message, "^ITEM_DONE|") then
-        local _, _, idx = string.find(message, "ITEM_DONE|(%d+)")
-        idx = tonumber(idx)
+
+    elseif string.sub(message, 1, 10) == "ITEM_DONE" .. SEP then
+        local idx = tonumber(string.sub(message, 11))
         if idx and self.remoteItems[idx] then
             self.remoteItems[idx].isDone = true
         end
+
     elseif message == "CLEAR" then
         self.remoteItems = {}
-        self.remoteMode = false
-        self.remoteML = nil
+        self.remoteMode  = false
+        self.remoteML    = nil
     end
 
-    -- Refresh UI
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
 end
-end
 
+-- ============================================================
 -- ---- Event: LOOT_OPENED ----
+-- ============================================================
 
 function MasterLoot:OnLootOpened()
-    if not MasterLoot.active then return end
+    -- Re-verify role every time loot opens; PARTY_LOOT_METHOD_CHANGED may
+    -- not have fired since login (e.g. player joined a group already in ML).
+    self:ResolveRole()
 
-    -- Re-verify ML status every time loot opens (it can change between sessions
-    -- and PARTY_LOOT_METHOD_CHANGED may not have fired since login).
-    CheckIsML()
+    if not self.active then return end
 
-    -- Debug: log current ML state
     if addon.db and addon.db.debug then
         local method, partyID, raidID = GetLootMethod()
         DEFAULT_CHAT_FRAME:AddMessage(string.format(
-            "|cff00ff00[LOOTY ML]|r OnLootOpened: method=%s partyID=%s raidID=%s isML=%s items=%d",
-            tostring(method), tostring(partyID), tostring(raidID), tostring(MasterLoot.isML), #MasterLoot.items))
+            "|cff00ff00[LOOTY ML]|r OnLootOpened: method=%s partyID=%s raidID=%s role=%s items=%d",
+            tostring(method), tostring(partyID), tostring(raidID),
+            tostring(self.role), #self.items))
     end
 
-    -- Read items from the loot window
+    -- Only the ML reads and broadcasts the loot window
+    if not self.isML then return end
+
     local numItems = GetNumLootItems()
     if numItems == 0 then return end
 
-    MasterLoot.items = {}
+    self.items = {}
     for i = 1, numItems do
-        local texture, name, quantity, quality, locked, isQuestItem, questId, isActive = GetLootSlotInfo(i)
-
-        -- WOTLK 3.3.5 does NOT have GetLootSlotType (added in 5.0.4/1.13.2).
-        -- Filter out money/coin slots: they return a coin string as name and
-        -- have no item link. Real items always return a valid link.
+        local texture, name, quantity, quality = GetLootSlotInfo(i)
+        -- WOTLK 3.3.5 has no GetLootSlotType; filter money by absence of link
         local link = GetLootSlotLink(i)
         if name and link then
-            table.insert(MasterLoot.items, {
-                slot = i,
-                name = name,
-                link = link,
-                texture = texture,
-                quantity = quantity or 1,
-                quality = quality or 2,
-                rolls = {},
-                rerolls = {},
-                rolling = false,
+            table.insert(self.items, {
+                slot      = i,
+                name      = name,
+                link      = link,
+                texture   = texture,
+                quantity  = quantity or 1,
+                quality   = quality or 2,
+                rolls     = {},
+                rerolls   = {},
+                rolling   = false,
                 rollStart = nil,
-                isDone = false,
-                winner = nil,
+                isDone    = false,
+                winner    = nil,
             })
         end
     end
 
-    -- Send items to raid members (one per message, 0.5s throttle)
-    if self.isML then
-        for index, item in ipairs(MasterLoot.items) do
-            local msg = self:SerializeItem(item, index)
-            self:SendThrottledMessage(msg)
-        end
+    -- Broadcast items to Raiders (throttled, 0.5 s apart)
+    for index, item in ipairs(self.items) do
+        local msg = self:SerializeItem(item, index)
+        self:SendThrottledMessage(msg)
     end
 
     if addon.db and addon.db.debug then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Loot opened: " .. #MasterLoot.items .. " items found.")
+        DEFAULT_CHAT_FRAME:AddMessage(
+            "|cff00ff00[LOOTY ML]|r Loot opened: " .. #self.items .. " items broadcast.")
     end
 
     if LootyUI and LootyUI.Refresh then
@@ -366,75 +437,88 @@ function MasterLoot:OnLootOpened()
     end
 end
 
+-- ============================================================
 -- ---- Event: LOOT_CLOSED ----
+-- ============================================================
 
 function MasterLoot:OnLootClosed()
-    -- Keep items in MasterLoot.items so rolls can continue after looting
-    -- They stay until ML clears them or switches loot method
+    -- Items stay alive so rolls can continue after the loot window closes.
+    -- They are cleared only when the ML switches loot method or calls ClearDone.
 end
 
--- ---- Start Roll ----
+-- ============================================================
+-- ---- Roll management (ML side) ----
+-- ============================================================
 
 function MasterLoot:StartRoll(itemIndex)
-    local item = MasterLoot.items[itemIndex]
+    local item = self.items[itemIndex]
     if not item or item.isDone or item.rolling then return end
 
-    -- Cancel any previous roll
-    if MasterLoot.rollTimer then
-        MasterLoot.rollTimer:Hide()
+    -- Cancel any previous active roll
+    if self.rollTimer then
+        self.rollTimer:Hide()
     end
 
-    item.rolling = true
+    item.rolling  = true
     item.rollStart = GetTime()
-    item.rolls = {}
-    item.rerolls = {}
-    item.winner = nil
-    MasterLoot.currentRoll = itemIndex
+    item.rolls    = {}
+    item.rerolls  = {}
+    item.winner   = nil
+    self.currentRoll = itemIndex
 
-    -- Announce to raid
-    local msg = ">> Rolling for: " .. (item.link or item.name) .. " — /roll now! (" .. MasterLoot.rollDuration .. "s)"
+    local msg = ">> Rolling for: " .. (item.link or item.name) ..
+                " — /roll now! (" .. self.rollDuration .. "s)"
     SendChatMessage(msg, "RAID_WARNING")
     addon:Print(msg)
 
-    -- Sync: notify raid members (ML only)
-    if MasterLoot.isML then
-        MasterLoot:SendThrottledMessage("ROLL_START|" .. itemIndex)
-    end
-
-    -- Start countdown timer
-    MasterLoot.rollTimer = MasterLoot:CreateTimer(itemIndex)
+        self:SendThrottledMessage("ROLL_START" .. SEP .. itemIndex)
+    self.rollTimer = self:CreateTimer(itemIndex)
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
 end
 
--- ---- End Roll (manual) ----
-
 function MasterLoot:EndRoll(itemIndex)
-    local item = MasterLoot.items[itemIndex]
+    local item = self.items[itemIndex]
     if not item or not item.rolling then return end
 
-    item.rolling = false
+    item.rolling  = false
     item.rollStart = nil
-    MasterLoot.currentRoll = nil
-    MasterLoot.rollTimer = nil
+    self.currentRoll = nil
+    self.rollTimer   = nil
 
-    -- Determine winner
-    local winner, winValue = MasterLoot:GetWinner(item)
+    local winner, winValue = self:GetWinner(item)
     item.winner = winner
 
     if winner then
-        local announceMsg = ">> " .. winner .. " wins " .. (item.link or item.name) .. " with " .. winValue .. "!"
+        local announceMsg = ">> " .. winner .. " wins " ..
+                            (item.link or item.name) .. " with " .. winValue .. "!"
         SendChatMessage(announceMsg, "RAID_WARNING")
         addon:Print(announceMsg)
     else
         addon:Print("No rolls for " .. (item.link or item.name))
     end
 
-    -- Sync: notify raid members (ML only)
-    if MasterLoot.isML then
-        MasterLoot:SendThrottledMessage("ROLL_END|" .. itemIndex .. "|" .. (winner or "none"))
+    self:SendThrottledMessage("ROLL_END" .. SEP .. itemIndex .. SEP .. (winner or "none"))
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
+
+function MasterLoot:CancelRoll()
+    if not self.currentRoll then return end
+    local item = self.items[self.currentRoll]
+    if not item then return end
+
+    item.rolling  = false
+    item.rollStart = nil
+    self.currentRoll = nil
+
+    if self.rollTimer then
+        self.rollTimer:Hide()
+        self.rollTimer = nil
     end
 
     if LootyUI and LootyUI.Refresh then
@@ -442,12 +526,14 @@ function MasterLoot:EndRoll(itemIndex)
     end
 end
 
+-- ============================================================
 -- ---- Timer ----
+-- ============================================================
 
 function MasterLoot:CreateTimer(itemIndex)
     local timer = CreateFrame("Frame")
     timer.itemIndex = itemIndex
-    timer.elapsed = 0
+    timer.elapsed   = 0
     timer:Show()
     timer:SetScript("OnUpdate", function(self, elapsed)
         self.elapsed = self.elapsed + elapsed
@@ -471,35 +557,34 @@ function MasterLoot:CreateTimer(itemIndex)
     return timer
 end
 
--- ---- Record Roll ----
+-- ============================================================
+-- ---- Roll recording (ML side, driven by Parser) ----
+-- ============================================================
 
 function MasterLoot:RecordRoll(playerName, value, itemName)
-    if not MasterLoot.active then return end
-    if not MasterLoot.currentRoll then return end
+    if not self.active then return end
+    if not self.currentRoll then return end
 
-    local item = MasterLoot.items[MasterLoot.currentRoll]
+    local item = self.items[self.currentRoll]
     if not item or not item.rolling then return end
 
-    -- Validate item name match (fuzzy — just check if item name is in the message)
-    if itemName and item.name and not (itemName:find(item.name, 1, true) or item.name:find(itemName, 1, true)) then
-        -- Don't reject outright — in Master Loot, /roll doesn't include item name
-        -- so we just associate with current roll
-    end
-
-    -- Check for duplicate (cheating detection)
+    -- Duplicate roll → cheating detection
     if item.rolls[playerName] then
         item.rerolls[playerName] = { value = value, time = GetTime() }
         if addon.db and addon.db.debug then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r REROLL detected: " .. playerName .. " rolled " .. value .. " (first: " .. item.rolls[playerName].value .. ")")
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(
+                "|cff00ff00[LOOTY ML]|r REROLL detected: %s rolled %d (first: %d)",
+                playerName, value, item.rolls[playerName].value))
         end
         return
     end
 
-    -- Record the roll
     item.rolls[playerName] = { value = value, time = GetTime() }
 
     if addon.db and addon.db.debug then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY ML]|r Roll recorded: " .. playerName .. " = " .. value .. " on " .. (item.name or "?"))
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ML]|r Roll recorded: %s = %d on %s",
+            playerName, value, item.name or "?"))
     end
 
     if LootyUI and LootyUI.Refresh then
@@ -507,81 +592,55 @@ function MasterLoot:RecordRoll(playerName, value, itemName)
     end
 end
 
--- ---- Get Winner ----
+-- ============================================================
+-- ---- Winner resolution ----
+-- ============================================================
 
 function MasterLoot:GetWinner(item)
     local bestPlayer = nil
-    local bestValue = 0
-
+    local bestValue  = 0
     for playerName, rollInfo in pairs(item.rolls) do
         if rollInfo.value and rollInfo.value > bestValue then
-            bestValue = rollInfo.value
+            bestValue  = rollInfo.value
             bestPlayer = playerName
         end
     end
-
     return bestPlayer, bestValue
 end
 
--- ---- Clear Done Items ----
+-- ============================================================
+-- ---- Item state helpers ----
+-- ============================================================
+
+function MasterLoot:ToggleDone(itemIndex)
+    local item = self.items[itemIndex]
+    if not item then return end
+
+    item.isDone = not item.isDone
+    self:SendThrottledMessage("ITEM_DONE" .. SEP .. itemIndex)
+
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+end
 
 function MasterLoot:ClearDone()
     local newItems = {}
-    for _, item in ipairs(MasterLoot.items) do
+    for _, item in ipairs(self.items) do
         if not item.isDone then
             table.insert(newItems, item)
         end
     end
-    MasterLoot.items = newItems
+    self.items = newItems
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
 end
-
--- ---- Toggle Item Done ----
-
-function MasterLoot:ToggleDone(itemIndex)
-    local item = MasterLoot.items[itemIndex]
-    if not item then return end
-
-    item.isDone = not item.isDone
-
-    -- Sync: notify raid members (ML only)
-    if MasterLoot.isML then
-        MasterLoot:SendThrottledMessage("ITEM_DONE|" .. itemIndex)
-    end
-
-    if LootyUI and LootyUI.Refresh then
-        LootyUI:Refresh()
-    end
-end
-
--- ---- Cancel Current Roll ----
-
-function MasterLoot:CancelRoll()
-    if not MasterLoot.currentRoll then return end
-    local item = MasterLoot.items[MasterLoot.currentRoll]
-    if not item then return end
-
-    item.rolling = false
-    item.rollStart = nil
-    MasterLoot.currentRoll = nil
-    if MasterLoot.rollTimer then
-        MasterLoot.rollTimer:Hide()
-        MasterLoot.rollTimer = nil
-    end
-
-    if LootyUI and LootyUI.Refresh then
-        LootyUI:Refresh()
-    end
-end
-
--- ---- Get Items by State ----
 
 function MasterLoot:GetPendingItems()
     local items = {}
-    for _, item in ipairs(MasterLoot.items) do
+    for _, item in ipairs(self.items) do
         if not item.isDone then
             table.insert(items, item)
         end
@@ -591,7 +650,6 @@ end
 
 function MasterLoot:GetDoneItems()
     local items = {}
-    -- Iterate backwards so most recent done items appear first
     for i = #self.items, 1, -1 do
         if self.items[i].isDone then
             table.insert(items, self.items[i])
@@ -600,170 +658,162 @@ function MasterLoot:GetDoneItems()
     return items
 end
 
--- ---- Get Active Item Count ----
-
 function MasterLoot:GetActiveItemCount()
     local count = 0
-    for _, item in ipairs(MasterLoot.items) do
-        if not item.isDone then
-            count = count + 1
-        end
+    for _, item in ipairs(self.items) do
+        if not item.isDone then count = count + 1 end
     end
     return count
 end
 
+-- ============================================================
 -- ---- Test Data Injection ----
+-- ============================================================
 
 function MasterLoot:InjectTestRolls()
-    MasterLoot.active = true
-    MasterLoot.isML = true
-    MasterLoot.items = {
+    self.isMasterLootActive = true
+    self.active = true
+    self.role   = "MasterLooter"
+    self.isML   = true
+    self.items  = {
         {
-            slot = 1,
-            name = "Spinal Crusher",
-            link = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
-            texture = "Interface\\Icons\\INV_Mace_36",
-            quantity = 1,
-            quality = 4,
-            rolling = true,
+            slot      = 1,
+            name      = "Spinal Crusher",
+            link      = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
+            texture   = "Interface\\Icons\\INV_Mace_36",
+            quantity  = 1,
+            quality   = 4,
+            rolling   = true,
             rollStart = GetTime(),
-            isDone = false,
-            winner = nil,
+            isDone    = false,
+            winner    = nil,
             rolls = {
-                IronWall   = { value = 45, time = GetTime() },
-                TankJoe    = { value = 73, time = GetTime() },
-                Buenclima  = { value = 22, time = GetTime() },
-                ShadowMaw  = { value = 88, time = GetTime() },
-                HealMePlz  = { value = 15, time = GetTime() },
-                DPSKing    = { value = 61, time = GetTime() },
-                WarriorK   = { value = 94, time = GetTime() },
-                MageBob    = { value = 33, time = GetTime() },
+                IronWall  = { value = 45, time = GetTime() },
+                TankJoe   = { value = 73, time = GetTime() },
+                Buenclima = { value = 22, time = GetTime() },
+                ShadowMaw = { value = 88, time = GetTime() },
+                HealMePlz = { value = 15, time = GetTime() },
+                DPSKing   = { value = 61, time = GetTime() },
+                WarriorK  = { value = 94, time = GetTime() },
+                MageBob   = { value = 33, time = GetTime() },
             },
             rerolls = {
-                DPSKing = { value = 99, time = GetTime() }, -- cheating attempt
+                DPSKing = { value = 99, time = GetTime() },  -- cheating attempt
             },
         },
         {
-            slot = 2,
-            name = "Staff of the Shadowflame",
-            link = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
-            texture = "Interface\\Icons\\INV_Staff_13",
-            quantity = 1,
-            quality = 4,
-            rolling = false,
+            slot      = 2,
+            name      = "Staff of the Shadowflame",
+            link      = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
+            texture   = "Interface\\Icons\\INV_Staff_13",
+            quantity  = 1,
+            quality   = 4,
+            rolling   = false,
             rollStart = nil,
-            isDone = false,
-            winner = nil,
-            rolls = {},
-            rerolls = {},
+            isDone    = false,
+            winner    = nil,
+            rolls     = {},
+            rerolls   = {},
         },
         {
-            slot = 3,
-            name = "Ring of the Eternal",
-            link = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
-            texture = "Interface\\Icons\\INV_Jewelry_Ring_15",
-            quantity = 1,
-            quality = 3,
-            rolling = false,
+            slot      = 3,
+            name      = "Ring of the Eternal",
+            link      = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
+            texture   = "Interface\\Icons\\INV_Jewelry_Ring_15",
+            quantity  = 1,
+            quality   = 3,
+            rolling   = false,
             rollStart = nil,
-            isDone = true, -- Already done
-            winner = "HealMePlz",
+            isDone    = true,
+            winner    = "HealMePlz",
             rolls = {
-                HealMePlz  = { value = 87, time = GetTime() },
-                ShadowMaw  = { value = 34, time = GetTime() },
-                MageBob    = { value = 65, time = GetTime() },
+                HealMePlz = { value = 87, time = GetTime() },
+                ShadowMaw = { value = 34, time = GetTime() },
+                MageBob   = { value = 65, time = GetTime() },
             },
             rerolls = {},
         },
     }
-    MasterLoot.currentRoll = 1
+    self.currentRoll = 1
 
-    addon:Print("Master Loot test data injected — 2 pending, 1 done.")
+    addon:Print("Master Loot test data injected — 2 pending, 1 done. Role: MasterLooter")
 
-    if LootyUI and LootyUI.SwitchTab then
-        LootyUI:SwitchTab("master")
-    end
-    if LootyUI and LootyUI.Refresh then
-        LootyUI:Refresh()
-    end
+    if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
+    if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end
 
--- ---- Inject Remote Test Data (simulate receiving items from ML) ----
-
 function MasterLoot:InjectRemoteTest()
-    -- Simulate remote mode with test items
+    self.isMasterLootActive = true
+    self.active     = true
+    self.role       = "Raider"
+    self.isML       = false
     self.remoteMode = true
-    self.remoteML = "TestMaster"
-
+    self.remoteML   = "TestMaster"
     self.remoteItems = {
         [1] = {
-            index = 1,
-            slot = 1,
-            name = "Spinal Crusher",
-            link = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
-            texture = "Interface\\Icons\\INV_Mace_36",
-            quantity = 1,
-            quality = 4,
-            rolling = true,
+            index     = 1,
+            slot      = 1,
+            name      = "Spinal Crusher",
+            link      = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
+            texture   = "Interface\\Icons\\INV_Mace_36",
+            quantity  = 1,
+            quality   = 4,
+            rolling   = true,
             rollStart = GetTime(),
-            isDone = false,
-            winner = nil,
+            isDone    = false,
+            winner    = nil,
             rolls = {
-                IronWall   = { value = 45, time = GetTime() },
-                TankJoe    = { value = 73, time = GetTime() },
-                Buenclima  = { value = 22, time = GetTime() },
-                ShadowMaw  = { value = 88, time = GetTime() },
-                HealMePlz  = { value = 15, time = GetTime() },
-                DPSKing    = { value = 61, time = GetTime() },
-                WarriorK   = { value = 94, time = GetTime() },
-                MageBob    = { value = 33, time = GetTime() },
+                IronWall  = { value = 45, time = GetTime() },
+                TankJoe   = { value = 73, time = GetTime() },
+                Buenclima = { value = 22, time = GetTime() },
+                ShadowMaw = { value = 88, time = GetTime() },
+                HealMePlz = { value = 15, time = GetTime() },
+                DPSKing   = { value = 61, time = GetTime() },
+                WarriorK  = { value = 94, time = GetTime() },
+                MageBob   = { value = 33, time = GetTime() },
             },
             rerolls = {
-                DPSKing = { value = 99, time = GetTime() }, -- cheating attempt
+                DPSKing = { value = 99, time = GetTime() },
             },
         },
         [2] = {
-            index = 2,
-            slot = 2,
-            name = "Staff of the Shadowflame",
-            link = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
-            texture = "Interface\\Icons\\INV_Staff_13",
-            quantity = 1,
-            quality = 4,
-            rolling = false,
+            index     = 2,
+            slot      = 2,
+            name      = "Staff of the Shadowflame",
+            link      = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
+            texture   = "Interface\\Icons\\INV_Staff_13",
+            quantity  = 1,
+            quality   = 4,
+            rolling   = false,
             rollStart = nil,
-            isDone = false,
-            winner = nil,
-            rolls = {},
-            rerolls = {},
+            isDone    = false,
+            winner    = nil,
+            rolls     = {},
+            rerolls   = {},
         },
         [3] = {
-            index = 3,
-            slot = 3,
-            name = "Ring of the Eternal",
-            link = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
-            texture = "Interface\\Icons\\INV_Jewelry_Ring_15",
-            quantity = 1,
-            quality = 3,
-            rolling = false,
+            index     = 3,
+            slot      = 3,
+            name      = "Ring of the Eternal",
+            link      = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
+            texture   = "Interface\\Icons\\INV_Jewelry_Ring_15",
+            quantity  = 1,
+            quality   = 3,
+            rolling   = false,
             rollStart = nil,
-            isDone = true, -- Already done
-            winner = "HealMePlz",
+            isDone    = true,
+            winner    = "HealMePlz",
             rolls = {
-                HealMePlz  = { value = 87, time = GetTime() },
-                ShadowMaw  = { value = 34, time = GetTime() },
-                MageBob    = { value = 65, time = GetTime() },
+                HealMePlz = { value = 87, time = GetTime() },
+                ShadowMaw = { value = 34, time = GetTime() },
+                MageBob   = { value = 65, time = GetTime() },
             },
             rerolls = {},
         },
     }
 
-    addon:Print("Remote test data injected — 2 pending, 1 done. ML: TestMaster")
+    addon:Print("Remote test data injected — 2 pending, 1 done. Role: Raider  ML: TestMaster")
 
-    if LootyUI and LootyUI.SwitchTab then
-        LootyUI:SwitchTab("master")
-    end
-    if LootyUI and LootyUI.Refresh then
-        LootyUI:Refresh()
-    end
+    if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
+    if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end

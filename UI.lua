@@ -63,6 +63,10 @@ local classCache = {}
 --   2. Raid roster (GetRaidRosterInfo)
 --   3. Party roster (UnitClass on party units)
 --   4. Falls back to nil → caller shows question mark
+-- 3.3.5 API note: IsInRaid/GetNumGroupMembers do NOT exist (added in 5.0.4).
+-- Use GetNumRaidMembers() > 0 to detect a raid group.
+-- Use GetNumRaidMembers() / GetNumPartyMembers() for iteration counts.
+
 local function GetPlayerClass(playerName)
     -- 1. Check cache first
     if classCache[playerName] then
@@ -71,10 +75,9 @@ local function GetPlayerClass(playerName)
 
     local classFileName
 
-    -- 2. Check raid roster
-    local inRaid = IsInRaid()
-    if inRaid then
-        for i = 1, GetNumGroupMembers() do
+    -- 2. Raid roster
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, cls = GetRaidRosterInfo(i)
             if name == playerName then
                 classFileName = cls
@@ -82,13 +85,13 @@ local function GetPlayerClass(playerName)
             end
         end
     else
-        -- 3. Check party
+        -- 3. Party or solo — check self then party slots
         local name = UnitName("player")
         if name == playerName then
             local _, cls = UnitClass("player")
             classFileName = cls
         else
-            for i = 1, GetNumGroupMembers() - 1 do
+            for i = 1, GetNumPartyMembers() do
                 local unit = "party" .. i
                 if UnitName(unit) == playerName then
                     local _, cls = UnitClass(unit)
@@ -110,8 +113,8 @@ end
 -- Pre-populate class cache from current roster.
 -- Call this on raid/party changes and during Initialize.
 function UI:RefreshClassCache()
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, cls = GetRaidRosterInfo(i)
             if name and cls then
                 classCache[name] = cls
@@ -123,7 +126,7 @@ function UI:RefreshClassCache()
             local _, cls = UnitClass("player")
             classCache[name] = cls
         end
-        for i = 1, GetNumGroupMembers() - 1 do
+        for i = 1, GetNumPartyMembers() do
             local unit = "party" .. i
             local n = UnitName(unit)
             if n then
@@ -1328,20 +1331,39 @@ function UI:Refresh()
         frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
 
     elseif currentTab == "master" then
-        local isML = LootyMasterLoot and LootyMasterLoot.isML
-        local items = isML and LootyMasterLoot.items or (LootyMasterLoot and LootyMasterLoot.remoteItems or {})
+        local isML   = LootyMasterLoot and LootyMasterLoot.isML
+        local role   = LootyMasterLoot and LootyMasterLoot.role
+        local items  = isML and LootyMasterLoot.items or (LootyMasterLoot and LootyMasterLoot.remoteItems or {})
         local mlCount = 0
         for _, item in pairs(items) do
             if not item.isDone then mlCount = mlCount + 1 end
         end
 
-        -- Show "Spectator Mode" indicator if not ML
-        if not isML and LootyMasterLoot and LootyMasterLoot.remoteMode then
-            local spectatorText = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            spectatorText:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
-            spectatorText:SetText("Spectating - ML: " .. (LootyMasterLoot.remoteML or "Unknown"))
-            spectatorText:SetTextColor(0.5, 0.5, 1.0)
+        -- ---- Role badge ----
+        -- Shown whenever master loot is active.
+        -- Loot method label (always shown in ML mode)
+        if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+            local methodLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            methodLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            methodLabel:SetText("Loot: Master")
+            methodLabel:SetTextColor(0.7, 0.7, 0.7)
             yOffset = yOffset - 16
+        end
+
+        -- Role label (MasterLooter = gold, Raider = blue)
+        if role == "MasterLooter" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: MasterLooter")
+            roleLabel:SetTextColor(1.0, 0.82, 0.0)
+            yOffset = yOffset - 18
+
+        elseif role == "Raider" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: Raider")
+            roleLabel:SetTextColor(0.4, 0.7, 1.0)
+            yOffset = yOffset - 18
         end
 
         if mlCount > 0 then
@@ -1394,11 +1416,15 @@ function UI:Refresh()
             end
         end
 
-        if mlCount == 0 and (not LootyMasterLoot or #LootyMasterLoot.items == 0) then
+        if mlCount == 0 then
             local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             empty:SetPoint("TOP", content, "TOP", 0, -40)
-            if LootyMasterLoot and LootyMasterLoot.active then
-                empty:SetText("No items looted yet — open a corpse with loot")
+            if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+                if role == "Raider" then
+                    empty:SetText("Waiting for MasterLooter to open a corpse...")
+                else
+                    empty:SetText("No items looted yet — open a corpse with loot")
+                end
             else
                 empty:SetText("Not in Master Loot mode")
             end

@@ -58,7 +58,10 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("LOOT_CLOSED")
     self:RegisterEvent("CHAT_MSG_SYSTEM")
 
-    -- Addon message event (for Master Loot sync)
+    -- Addon message event (for Master Loot sync).
+    -- NOTE: RegisterAddonMessagePrefix does NOT exist in WoW 3.3.5 — it was
+    -- added in patch 4.1.0. In 3.3.5, CHAT_MSG_ADDON fires unconditionally
+    -- for all addon messages with no prefix registration needed.
     self:RegisterEvent("CHAT_MSG_ADDON")
 
     -- Class cache: refresh when raid/party composition changes
@@ -209,7 +212,14 @@ function addon:CHAT_MSG_SYSTEM(event, message)
 end
 
 function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
-    -- Only process messages for Looty (prefix = "LOOTY")
+    -- Debug: log ALL addon messages so we can confirm the event fires at all
+    if self.db and self.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ADDON]|r prefix=%s dist=%s sender=%s msg=%.40s",
+            tostring(prefix), tostring(distribution),
+            tostring(sender), tostring(message)))
+    end
+
     if prefix ~= "LOOTY" then return end
     if LootyMasterLoot then
         LootyMasterLoot:OnAddonMessage(prefix, message, distribution, sender)
@@ -220,6 +230,15 @@ function addon:GROUP_ROSTER_UPDATE(event)
     -- Refresh class cache when raid/party composition changes
     if LootyUI.RefreshClassCache then
         LootyUI:RefreshClassCache()
+    end
+    -- Re-resolve ML role: roster may not be populated during PLAYER_LOGIN,
+    -- so a player logging in while already in a ML group will get the correct
+    -- role here once the roster is ready.
+    if LootyMasterLoot then
+        LootyMasterLoot:ResolveRole()
+        if LootyUI and LootyUI.Refresh then
+            LootyUI:Refresh()
+        end
     end
 end
 
