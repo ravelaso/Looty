@@ -52,8 +52,35 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("CANCEL_LOOT_ROLL")
     self:RegisterEvent("CHAT_MSG_LOOT")
 
+    -- Master Loot events
+    self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED")
+    self:RegisterEvent("LOOT_OPENED")
+    self:RegisterEvent("LOOT_CLOSED")
+    self:RegisterEvent("CHAT_MSG_SYSTEM")
+
+    -- Addon message event (for Master Loot sync).
+    -- NOTE: RegisterAddonMessagePrefix does NOT exist in WoW 3.3.5 — it was
+    -- added in patch 4.1.0. In 3.3.5, CHAT_MSG_ADDON fires unconditionally
+    -- for all addon messages with no prefix registration needed.
+    self:RegisterEvent("CHAT_MSG_ADDON")
+
+    -- Class cache: refresh when raid/party composition changes
+
+    -- Class cache: refresh when raid/party composition changes
+    self:RegisterEvent("GROUP_ROSTER_UPDATE")
+
     -- Create the UI window
     LootyUI:Create()
+
+    -- Pre-populate class cache from current roster
+    if LootyUI.RefreshClassCache then
+        LootyUI:RefreshClassCache()
+    end
+
+    -- Initialize Master Loot state (detect if already in ML mode at login)
+    if LootyMasterLoot then
+        LootyMasterLoot:Initialize()
+    end
 
     -- Restore window position and size from saved vars
     if self.db.windowPos.x and self.db.windowPos.y then
@@ -117,9 +144,9 @@ function addon:START_LOOT_ROLL(event, rollID, duration)
     self:Print("New roll: " .. name)
     LootyUI:Refresh()
 
-    -- Auto-switch to Active tab so user sees new rolls
+    -- Auto-switch to GroupLoot tab so user sees new rolls
     if LootyUI.SwitchTab then
-        LootyUI:SwitchTab("active")
+        LootyUI:SwitchTab("grouplot")
     end
 
     -- Auto-show window if hidden
@@ -157,6 +184,62 @@ end
 function addon:CHAT_MSG_LOOT(event, message)
     -- Delegate to Parser module
     LootyParser:ProcessMessage(message)
+end
+
+-- ---- Master Loot Events ----
+
+function addon:PARTY_LOOT_METHOD_CHANGED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootMethodChanged()
+    end
+end
+
+function addon:LOOT_OPENED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootOpened()
+    end
+end
+
+function addon:LOOT_CLOSED(event)
+    if LootyMasterLoot then
+        LootyMasterLoot:OnLootClosed()
+    end
+end
+
+function addon:CHAT_MSG_SYSTEM(event, message)
+    -- Delegate to Parser for /roll message detection
+    LootyParser:ProcessSystemMessage(message)
+end
+
+function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
+    -- Debug: log ALL addon messages so we can confirm the event fires at all
+    if self.db and self.db.debug then
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "|cff00ff00[LOOTY ADDON]|r prefix=%s dist=%s sender=%s msg=%.40s",
+            tostring(prefix), tostring(distribution),
+            tostring(sender), tostring(message)))
+    end
+
+    if prefix ~= "LOOTY" then return end
+    if LootyMasterLoot then
+        LootyMasterLoot:OnAddonMessage(prefix, message, distribution, sender)
+    end
+end
+
+function addon:GROUP_ROSTER_UPDATE(event)
+    -- Refresh class cache when raid/party composition changes
+    if LootyUI.RefreshClassCache then
+        LootyUI:RefreshClassCache()
+    end
+    -- Re-resolve ML role: roster may not be populated during PLAYER_LOGIN,
+    -- so a player logging in while already in a ML group will get the correct
+    -- role here once the roster is ready.
+    if LootyMasterLoot then
+        LootyMasterLoot:ResolveRole()
+        if LootyUI and LootyUI.Refresh then
+            LootyUI:Refresh()
+        end
+    end
 end
 
 -- ---- Public API ----
@@ -290,6 +373,19 @@ SlashCmdList["LOOTY"] = function(msg)
         LootyUI:Refresh()
     elseif msg == "test" then
         addon:InjectTestRolls()
+    elseif msg == "mtest" then
+        if LootyMasterLoot then
+            LootyMasterLoot:InjectTestRolls()
+        else
+            addon:Print("Master Loot module not loaded.")
+        end
+    elseif msg == "mtestremote" then
+        -- Inject remote test data (simulate receiving items from ML)
+        if LootyMasterLoot then
+            LootyMasterLoot:InjectRemoteTest()
+        else
+            addon:Print("Master Loot module not loaded.")
+        end
     elseif msg == "debug" then
         addon.db.debug = not addon.db.debug
         addon:Print("Debug " .. (addon.db.debug and "ON" or "OFF"))
@@ -298,7 +394,9 @@ SlashCmdList["LOOTY"] = function(msg)
         addon:Print("  /looty        - Toggle window")
         addon:Print("  /looty lock   - Toggle window lock (dragging)")
         addon:Print("  /looty clear  - Clear completed roll history")
-        addon:Print("  /looty test   - Inject mock rolls for testing")
+        addon:Print("  /looty test   - Inject mock Group Loot rolls")
+        addon:Print("  /looty mtest  - Inject mock Master Loot data")
+        addon:Print("  /looty mtestremote - Inject mock remote ML data")
         addon:Print("  /looty debug  - Toggle data debug")
     end
 end

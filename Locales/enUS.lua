@@ -40,6 +40,14 @@ L.ROLL_RESULT_PATTERNS = {
     "^(.-) rolls (%d+) %(1%-100%)%.$",
 }
 
+-- Master Loot /roll patterns (CHAT_MSG_SYSTEM)
+L.MASTER_ROLL_PATTERNS = {
+    -- "PlayerName rolls 85 (1-100)"
+    "^(.-) rolls (%d+) %((%d+)%-(%d+)%)$",
+    -- "Your roll for [Item] is 85 (1-100)"
+    "^Your roll .- is (%d+) %((%d+)%-(%d+)%)$",
+}
+
 -- Roll type display strings
 L.ROLL_LABELS = {
     need       = "Need",

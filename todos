@@ -1,0 +1,11 @@
+TODOS: 
+
+1:  Find information on, Loot functions -> https://web.archive.org/web/20100726112636/http://wowprogramming.com/docs/api_categories#loot
+	An idea is, perhaps we can create our own Roll by Blizzard commands instead of parsing the loot messages. This will keep MasterLoot on, but we open the roll and let blizzard do the dice and results.
+	(Needs investigation)
+
+
+
+- GiveMasterLoot(slot, index) -> Awards Item to a group member (No effect if not MasterLoot)
+
+

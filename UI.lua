@@ -33,8 +33,112 @@ local QUALITY_COLORS = {
 
 local WHITE_TEX = "Interface\\Buttons\\WHITE8X8"
 
+-- Class icon texture: ICONS-CLASSES from WOTLK 3.3.5 (256x256, 64x64 cells).
+-- Verified layout from active WOTLK addons:
+--   Row 0: Warrior | Mage    | Rogue   | Druid
+--   Row 1: Hunter   | Shaman  | Priest  | Warlock
+--   Row 2: Paladin   | DK      | Monk    | (empty)
+--   Row 3: (empty row)
+-- Format: { left, right, top, bottom } — normalized 0-1.
+local CLASS_ICON_TEX = "Interface\\WorldStateFrame\\ICONS-CLASSES"
+local CLASS_TCOORDS = {
+    WARRIOR     = { 0,      0.25,   0,      0.25   },  -- col 0, row 0
+    MAGE        = { 0.25,   0.5,    0,      0.25   },  -- col 1, row 0
+    ROGUE       = { 0.5,    0.7656, 0,      0.25   },  -- col 2, row 0
+    DRUID       = { 0.7656, 1.0,    0,      0.25   },  -- col 3, row 0
+    HUNTER      = { 0,      0.25,   0.25,   0.5    },  -- col 0, row 1
+    SHAMAN      = { 0.25,   0.5,    0.25,   0.5    },  -- col 1, row 1
+    PRIEST      = { 0.5,    0.7656, 0.25,   0.5    },  -- col 2, row 1
+    WARLOCK     = { 0.7656, 1.0,    0.25,   0.5    },  -- col 3, row 1
+    PALADIN     = { 0,      0.25,   0.5,    0.7656 },  -- col 0, row 2
+    DEATHKNIGHT = { 0.25,   0.5,    0.5,    0.7656 },  -- col 1, row 2
+}
+
+-- Cache: playerName → classFileName (persists across refreshes,
+-- survives players leaving the raid after rolling)
+local classCache = {}
+
+-- Lookup class file name for a player. Sources (in order):
+--   1. Cache (from previous lookups)
+--   2. Raid roster (GetRaidRosterInfo)
+--   3. Party roster (UnitClass on party units)
+--   4. Falls back to nil → caller shows question mark
+-- 3.3.5 API note: IsInRaid/GetNumGroupMembers do NOT exist (added in 5.0.4).
+-- Use GetNumRaidMembers() > 0 to detect a raid group.
+-- Use GetNumRaidMembers() / GetNumPartyMembers() for iteration counts.
+
+local function GetPlayerClass(playerName)
+    -- 1. Check cache first
+    if classCache[playerName] then
+        return classCache[playerName]
+    end
+
+    local classFileName
+
+    -- 2. Raid roster
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local name, _, _, _, _, cls = GetRaidRosterInfo(i)
+            if name == playerName then
+                classFileName = cls
+                break
+            end
+        end
+    else
+        -- 3. Party or solo — check self then party slots
+        local name = UnitName("player")
+        if name == playerName then
+            local _, cls = UnitClass("player")
+            classFileName = cls
+        else
+            for i = 1, GetNumPartyMembers() do
+                local unit = "party" .. i
+                if UnitName(unit) == playerName then
+                    local _, cls = UnitClass(unit)
+                    classFileName = cls
+                    break
+                end
+            end
+        end
+    end
+
+    -- Cache if found
+    if classFileName then
+        classCache[playerName] = classFileName
+    end
+
+    return classFileName
+end
+
+-- Pre-populate class cache from current roster.
+-- Call this on raid/party changes and during Initialize.
+function UI:RefreshClassCache()
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local name, _, _, _, _, cls = GetRaidRosterInfo(i)
+            if name and cls then
+                classCache[name] = cls
+            end
+        end
+    else
+        local name = UnitName("player")
+        if name then
+            local _, cls = UnitClass("player")
+            classCache[name] = cls
+        end
+        for i = 1, GetNumPartyMembers() do
+            local unit = "party" .. i
+            local n = UnitName(unit)
+            if n then
+                local _, cls = UnitClass(unit)
+                classCache[n] = cls
+            end
+        end
+    end
+end
+
 local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
-local currentTab = "active"
+local currentTab = "grouplot"
 local expandedSections = {} -- rollID → sectionType (persists across refresh)
 
 -- Section colors: consistent across active and history
@@ -242,65 +346,65 @@ function UI:Create()
     -- ---- Tab buttons (children of tabBarOverlay for Z-order) ----
     frame.tabs = {}
 
-    -- Active tab
-    local activeTab = CreateFrame("Button", nil, tabBarOverlay)
-    activeTab:SetSize(85, TAB_BAR_HEIGHT - 2)
-    activeTab:SetPoint("LEFT", tabBarOverlay, "LEFT", 6, 0)
-    activeTab:EnableMouse(true)
-    activeTab:SetScript("OnClick", function() UI:SwitchTab("active") end)
-    activeTab:SetScript("OnEnter", function()
-        if currentTab ~= "active" then activeTab.hoverBg:Show() end
+    -- GroupLoot tab
+    local groupLootTab = CreateFrame("Button", nil, tabBarOverlay)
+    groupLootTab:SetSize(95, TAB_BAR_HEIGHT - 2)
+    groupLootTab:SetPoint("LEFT", tabBarOverlay, "LEFT", 6, 0)
+    groupLootTab:EnableMouse(true)
+    groupLootTab:SetScript("OnClick", function() UI:SwitchTab("grouplot") end)
+    groupLootTab:SetScript("OnEnter", function()
+        if currentTab ~= "grouplot" then groupLootTab.hoverBg:Show() end
     end)
-    activeTab:SetScript("OnLeave", function() activeTab.hoverBg:Hide() end)
+    groupLootTab:SetScript("OnLeave", function() groupLootTab.hoverBg:Hide() end)
 
-    -- Active tab indicator line (bottom)
-    local activeIndicator = ColorTexture(activeTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
-    activeIndicator:SetPoint("BOTTOMLEFT", activeTab, "BOTTOMLEFT", 0, 0)
-    activeIndicator:SetPoint("BOTTOMRIGHT", activeTab, "BOTTOMRIGHT", 0, 0)
-    activeIndicator:SetHeight(2)
-    activeTab.indicator = activeIndicator
+    -- GroupLoot tab indicator line (bottom)
+    local groupLootIndicator = ColorTexture(groupLootTab, "BORDER", 0.35, 0.35, 0.35, 1.0)
+    groupLootIndicator:SetPoint("BOTTOMLEFT", groupLootTab, "BOTTOMLEFT", 0, 0)
+    groupLootIndicator:SetPoint("BOTTOMRIGHT", groupLootTab, "BOTTOMRIGHT", 0, 0)
+    groupLootIndicator:SetHeight(2)
+    groupLootTab.indicator = groupLootIndicator
 
     -- Hover background
-    local activeHover = ColorTexture(activeTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    activeHover:SetAllPoints(activeTab)
-    activeHover:Hide()
-    activeTab.hoverBg = activeHover
+    local groupLootHover = ColorTexture(groupLootTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    groupLootHover:SetAllPoints(groupLootTab)
+    groupLootHover:Hide()
+    groupLootTab.hoverBg = groupLootHover
 
-    local activeText = activeTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    activeText:SetPoint("CENTER", activeTab, "CENTER", 0, 0)
-    activeText:SetText("Active: 0")
-    activeTab.text = activeText
+    local groupLootText = groupLootTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    groupLootText:SetPoint("CENTER", groupLootTab, "CENTER", 0, 0)
+    groupLootText:SetText("Group: 0")
+    groupLootTab.text = groupLootText
 
-    frame.tabs.active = activeTab
+    frame.tabs.grouplot = groupLootTab
 
-    -- History tab
-    local historyTab = CreateFrame("Button", nil, tabBarOverlay)
-    historyTab:SetSize(75, TAB_BAR_HEIGHT - 2)
-    historyTab:SetPoint("LEFT", activeTab, "RIGHT", 0, 0)
-    historyTab:EnableMouse(true)
-    historyTab:SetScript("OnClick", function() UI:SwitchTab("history") end)
-    historyTab:SetScript("OnEnter", function()
-        if currentTab ~= "history" then historyTab.hoverBg:Show() end
+    -- Master Loot tab
+    local masterTab = CreateFrame("Button", nil, tabBarOverlay)
+    masterTab:SetSize(85, TAB_BAR_HEIGHT - 2)
+    masterTab:SetPoint("LEFT", groupLootTab, "RIGHT", 0, 0)
+    masterTab:EnableMouse(true)
+    masterTab:SetScript("OnClick", function() UI:SwitchTab("master") end)
+    masterTab:SetScript("OnEnter", function()
+        if currentTab ~= "master" then masterTab.hoverBg:Show() end
     end)
-    historyTab:SetScript("OnLeave", function() historyTab.hoverBg:Hide() end)
+    masterTab:SetScript("OnLeave", function() masterTab.hoverBg:Hide() end)
 
-    local historyIndicator = ColorTexture(historyTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
-    historyIndicator:SetPoint("BOTTOMLEFT", historyTab, "BOTTOMLEFT", 0, 0)
-    historyIndicator:SetPoint("BOTTOMRIGHT", historyTab, "BOTTOMRIGHT", 0, 0)
-    historyIndicator:SetHeight(2)
-    historyTab.indicator = historyIndicator
+    local masterIndicator = ColorTexture(masterTab, "BORDER", 0.12, 0.12, 0.12, 0.0)
+    masterIndicator:SetPoint("BOTTOMLEFT", masterTab, "BOTTOMLEFT", 0, 0)
+    masterIndicator:SetPoint("BOTTOMRIGHT", masterTab, "BOTTOMRIGHT", 0, 0)
+    masterIndicator:SetHeight(2)
+    masterTab.indicator = masterIndicator
 
-    local historyHover = ColorTexture(historyTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-    historyHover:SetAllPoints(historyTab)
-    historyHover:Hide()
-    historyTab.hoverBg = historyHover
+    local masterHover = ColorTexture(masterTab, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    masterHover:SetAllPoints(masterTab)
+    masterHover:Hide()
+    masterTab.hoverBg = masterHover
 
-    local historyText = historyTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    historyText:SetPoint("CENTER", historyTab, "CENTER", 0, 0)
-    historyText:SetText("History")
-    historyTab.text = historyText
+    local masterText = masterTab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    masterText:SetPoint("CENTER", masterTab, "CENTER", 0, 0)
+    masterText:SetText("Master: 0")
+    masterTab.text = masterText
 
-    frame.tabs.history = historyTab
+    frame.tabs.master = masterTab
 
     -- Close button (child of frame, NOT tabBarOverlay, so Hide() closes everything).
     -- Created AFTER tabs for correct Z-order on top.
@@ -361,7 +465,7 @@ function UI:Create()
     frame.elapsed = 0
 
     LootyFrame = frame
-    UI:SwitchTab("active")
+    UI:SwitchTab("grouplot")
     return frame
 end
 
@@ -399,16 +503,20 @@ function UI:SwitchTab(tab)
     local frame = LootyFrame
     if not frame then return end
 
-    if tab == "active" then
-        frame.tabs.active.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
-        frame.tabs.active.text:SetTextColor(0.85, 0.85, 0.85)
-        frame.tabs.history.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.history.text:SetTextColor(0.4, 0.4, 0.4)
-    else
-        frame.tabs.active.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
-        frame.tabs.active.text:SetTextColor(0.4, 0.4, 0.4)
-        frame.tabs.history.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
-        frame.tabs.history.text:SetTextColor(0.85, 0.85, 0.85)
+    local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
+    local masterCountText = "Master: " .. mlCount
+
+    if tab == "grouplot" then
+        frame.tabs.grouplot.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
+        frame.tabs.grouplot.text:SetTextColor(0.85, 0.85, 0.85)
+        frame.tabs.master.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.master.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.text:SetText(masterCountText)
+    elseif tab == "master" then
+        frame.tabs.grouplot.indicator:SetVertexColor(0.12, 0.12, 0.12, 0.0)
+        frame.tabs.grouplot.text:SetTextColor(0.4, 0.4, 0.4)
+        frame.tabs.master.indicator:SetVertexColor(0.35, 0.35, 0.35, 1.0)
+        frame.tabs.master.text:SetTextColor(0.85, 0.85, 0.85)
     end
 
     -- Reset scroll position
@@ -486,18 +594,34 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
     iconBorder:SetSize(iconH + 2, iconH + 2)
     iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 
-    -- Item name (full brightness always)
+    -- Item name (item link for hover tooltip + click)
     local name = panel:CreateFontString(nil, "OVERLAY", nameFont)
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
     name:SetJustifyH("LEFT")
     name:SetWordWrap(true)
-    local displayName = rollData.name
+    local displayName = rollData.link or rollData.name
     if rollData.count and rollData.count > 1 then
         displayName = displayName .. " (x" .. rollData.count .. ")"
     end
     name:SetText(displayName)
     name:SetTextColor(qColor.r, qColor.g, qColor.b)
+
+    -- Item tooltip + click link (on the panel, not the name — works on empty space too)
+    if rollData.link then
+        panel:EnableMouse(true)
+        panel:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(rollData.link)
+            GameTooltip:Show()
+        end)
+        panel:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        panel:SetScript("OnMouseUp", function(_, button)
+            SetItemRef(rollData.link, rollData.link, button)
+        end)
+    end
 
     -- -- Timer bar (active only, hidden for completed/history)
     local timerRowY = -PANEL_PADDING - iconH - 6
@@ -639,6 +763,17 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
         local playerRowH = 16
         for _, entry in ipairs(entries) do
             local isWinner = (entry.name == winnerPlayer)
+            local classFile = GetPlayerClass(entry.name)
+            local classTex = CLASS_TCOORDS[classFile]
+
+            -- DEBUG: log class lookup failures when debug is on
+            if addon and addon.db and addon.db.debug then
+                if not classFile then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r No class found for '" .. entry.name .. "'")
+                elseif not classTex then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r class=" .. classFile .. " but NO coords")
+                end
+            end
 
             -- Row background (green highlight for winner)
             local rowBg = ColorTexture(sectionFrame, "BACKGROUND",
@@ -650,16 +785,28 @@ local function BuildRollPanel(content, rollData, yOffset, opts)
             rowBg:SetPoint("TOPRIGHT", sectionFrame, "TOPRIGHT", 0, listY)
             rowBg:SetHeight(playerRowH)
 
-            -- Player icon (no history dimming)
+            -- Class icon (small, leftmost)
+            local cIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
+            cIcon:SetSize(14, 14)
+            cIcon:SetPoint("LEFT", sectionFrame, "LEFT", 2, 0)
+            cIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
+            if classTex then
+                cIcon:SetTexture(CLASS_ICON_TEX)
+                cIcon:SetTexCoord(classTex[1], classTex[2], classTex[3], classTex[4])
+            else
+                cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+
+            -- Player roll icon
             local pIcon = sectionFrame:CreateTexture(nil, "ARTWORK")
             pIcon:SetSize(14, 14)
-            pIcon:SetPoint("LEFT", sectionFrame, "LEFT", 8, 0)
+            pIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
             pIcon:SetPoint("TOP", rowBg, "TOP", 0, 0)
             pIcon:SetTexture(L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass)
 
             -- Player name (green text for winner, section color for others)
             local pName = sectionFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            pName:SetPoint("LEFT", pIcon, "RIGHT", 4, 0)
+            pName:SetPoint("LEFT", pIcon, "RIGHT", 3, 0)
             pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
             if isWinner then
                 pName:SetTextColor(WINNER_TEXT[1], WINNER_TEXT[2], WINNER_TEXT[3])
@@ -767,12 +914,14 @@ function UI:UpdateTabCounts()
 
     local activeCount = #addon:GetAllActiveRolls()
     local historyCount = #addon:GetCompletedRolls()
+    local totalGl = activeCount + historyCount
+    local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
 
-    if frame.tabs.active and frame.tabs.active.text then
-        frame.tabs.active.text:SetText("Active: " .. activeCount)
+    if frame.tabs.grouplot and frame.tabs.grouplot.text then
+        frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
     end
-    if frame.tabs.history and frame.tabs.history.text then
-        frame.tabs.history.text:SetText("History (" .. historyCount .. ")")
+    if frame.tabs.master and frame.tabs.master.text then
+        frame.tabs.master.text:SetText("Master: " .. mlCount)
     end
 end
 
@@ -780,6 +929,365 @@ end
 
 function UI:ClearExpandedState(rollID)
     expandedSections[rollID] = nil
+end
+
+-- ---- Build Master Loot item panel ----
+-- opts: { isDone: bool, isML: bool }
+
+local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
+    opts = opts or {}
+    local isDone = opts.isDone or false
+    local isML = opts.isML or false
+    local alpha = isDone and 0.5 or 1.0
+    local qColor = QUALITY_COLORS[item.quality] or QUALITY_COLORS[2]
+
+    local panel = CreateFrame("Frame", nil, content)
+    local contentWidth = content:GetWidth()
+    panel:SetWidth(contentWidth)
+
+    -- Panel background
+    local panelBg = ColorTexture(panel, "BACKGROUND", 0.12, 0.12, 0.12, isDone and 0.2 or 0.6)
+    panelBg:SetAllPoints(panel)
+
+    -- Panel border
+    local borderColor = isDone and { 0.15, 0.15, 0.15 } or { 0.20, 0.20, 0.20 }
+    local panelBorderTop = ColorTexture(panel, "BORDER", borderColor[1], borderColor[2], borderColor[3], 0.4)
+    panelBorderTop:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    panelBorderTop:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+    panelBorderTop:SetHeight(1)
+
+    -- Item icon
+    local iconH = ICON_SIZE - 4
+    local icon = panel:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(iconH, iconH)
+    icon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
+    icon:SetTexture(item.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+    icon:SetAlpha(alpha)
+
+    -- Quality border
+    local iconBorder = ColorTexture(panel, "BORDER", qColor.r, qColor.g, qColor.b, 0.5)
+    iconBorder:SetSize(iconH + 2, iconH + 2)
+    iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+
+    -- Item name (item link for hover tooltip + click)
+    local name = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    name:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+    name:SetJustifyH("LEFT")
+    name:SetWordWrap(true)
+    local displayName = item.link or item.name
+    if item.quantity and item.quantity > 1 then
+        displayName = displayName .. " (x" .. item.quantity .. ")"
+    end
+    name:SetText(displayName)
+    name:SetTextColor(qColor.r * alpha, qColor.g * alpha, qColor.b * alpha)
+    name:SetAlpha(alpha)
+
+    -- Item tooltip + click link (on the panel)
+    if item.link then
+        panel:EnableMouse(true)
+        panel:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(item.link)
+            GameTooltip:Show()
+        end)
+        panel:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+        panel:SetScript("OnMouseUp", function(_, button)
+            SetItemRef(item.link, item.link, button)
+        end)
+    end
+
+    local rollY = -PANEL_PADDING - iconH - 4
+
+    -- Roll count summary
+    local rollCount = 0
+    local rerollCount = 0
+    if item.rolls then
+        for _ in pairs(item.rolls) do rollCount = rollCount + 1 end
+    end
+    if item.rerolls then
+        for _ in pairs(item.rerolls) do rerollCount = rerollCount + 1 end
+    end
+
+    -- Status indicator
+    local statusColor
+    local statusText
+    if item.rolling then
+        statusColor = { 1.0, 0.85, 0.2 }
+        statusText = "Rolling... (" .. rollCount .. " rolls)"
+    elseif item.winner then
+        statusColor = { 0.3, 1.0, 0.3 }
+        statusText = "Winner: " .. item.winner
+    elseif rollCount > 0 then
+        statusColor = { 0.8, 0.8, 0.8 }
+        statusText = "Rolls: " .. rollCount
+    else
+        statusColor = { 0.4, 0.4, 0.4 }
+        statusText = "No rolls"
+    end
+
+    if rerollCount > 0 then
+        statusText = statusText .. " | " .. rerollCount .. " re-roll(s) ⚠️"
+    end
+
+    local status = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    status:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+    status:SetText(statusText)
+    status:SetTextColor(statusColor[1] * alpha, statusColor[2] * alpha, statusColor[3] * alpha)
+    rollY = rollY - 16
+
+    -- Timer bar (only when rolling)
+    local timerBarH = 3
+    local timerBg, timerBar, timerText
+    if item.rolling and item.rollStart then
+        timerBg = ColorTexture(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
+        timerBg:SetHeight(timerBarH)
+        timerBg:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        timerBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, rollY)
+
+        timerBar = ColorTexture(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
+        timerBar:SetHeight(timerBarH)
+        timerBar:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+
+        timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PANEL_PADDING, rollY - 2)
+        timerText:SetJustifyH("RIGHT")
+        local remaining = LootyMasterLoot.rollDuration - (GetTime() - item.rollStart)
+        remaining = math.max(0, remaining)
+        timerText:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
+        rollY = rollY - timerBarH - 4
+
+        -- Store timer refs on panel for live updates
+        panel._mlItemIndex = itemIndex
+        panel._mlRollStart = item.rollStart
+        panel._mlDuration = LootyMasterLoot.rollDuration
+        panel._mlTimerBg = timerBg
+        panel._mlTimerBar = timerBar
+        panel._mlTimerText = timerText
+    end
+
+    -- Action buttons (only for ML, only when not done and not rolling)
+    local isML = LootyMasterLoot and LootyMasterLoot.isML
+    if isML and not isDone and not item.rolling then
+        local btnY = rollY - 4
+
+        -- Start Roll button
+        local startBtn = CreateFrame("Button", nil, panel)
+        startBtn:SetSize(70, 20)
+        startBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, btnY)
+        local startBg = ColorTexture(startBtn, "BACKGROUND", 0.15, 0.35, 0.15, 0.8)
+        startBg:SetAllPoints(startBtn)
+        local startText = startBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        startText:SetPoint("CENTER", startBtn, "CENTER", 0, 0)
+        startText:SetText("Start Roll")
+        startText:SetTextColor(0.5, 1.0, 0.5)
+        startBtn:SetScript("OnEnter", function() startBg:SetVertexColor(0.25, 0.45, 0.25, 0.8) end)
+        startBtn:SetScript("OnLeave", function() startBg:SetVertexColor(0.15, 0.35, 0.15, 0.8) end)
+        startBtn:SetScript("OnClick", function() LootyMasterLoot:StartRoll(itemIndex) end)
+        startBtn:Show()
+
+        -- Mark Done button
+        local doneBtn = CreateFrame("Button", nil, panel)
+        doneBtn:SetSize(55, 20)
+        doneBtn:SetPoint("LEFT", startBtn, "RIGHT", 4, 0)
+        local doneBg = ColorTexture(doneBtn, "BACKGROUND", 0.25, 0.15, 0.15, 0.8)
+        doneBg:SetAllPoints(doneBtn)
+        local doneText = doneBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        doneText:SetPoint("CENTER", doneBtn, "CENTER", 0, 0)
+        doneText:SetText("Done")
+        doneText:SetTextColor(1.0, 0.5, 0.5)
+        doneBtn:SetScript("OnEnter", function() doneBg:SetVertexColor(0.35, 0.25, 0.25, 0.8) end)
+        doneBtn:SetScript("OnLeave", function() doneBg:SetVertexColor(0.25, 0.15, 0.15, 0.8) end)
+        doneBtn:SetScript("OnClick", function() LootyMasterLoot:ToggleDone(itemIndex) end)
+        doneBtn:Show()
+
+        rollY = btnY - 22
+    end
+
+    -- Cancel Roll button (for ML when rolling)
+    if isML and item.rolling then
+        local cancelBtn = CreateFrame("Button", nil, panel)
+        cancelBtn:SetSize(65, 20)
+        cancelBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        local cancelBg = ColorTexture(cancelBtn, "BACKGROUND", 0.25, 0.15, 0.15, 0.8)
+        cancelBg:SetAllPoints(cancelBtn)
+        local cancelText = cancelBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        cancelText:SetPoint("CENTER", cancelBtn, "CENTER", 0, 0)
+        cancelText:SetText("End Roll")
+        cancelText:SetTextColor(1.0, 0.5, 0.5)
+        cancelBtn:SetScript("OnEnter", function() cancelBg:SetVertexColor(0.35, 0.25, 0.25, 0.8) end)
+        cancelBtn:SetScript("OnLeave", function() cancelBg:SetVertexColor(0.25, 0.15, 0.15, 0.8) end)
+        cancelBtn:SetScript("OnClick", function() LootyMasterLoot:EndRoll(itemIndex) end)
+        cancelBtn:Show()
+        rollY = rollY - 24
+    end
+
+    -- Roll button (for Raider when a roll is active)
+    -- RandomRoll(1, 100) is the 3.3.5 API for /roll 1 100.
+    -- It fires CHAT_MSG_SYSTEM, which Parser captures → RecordRoll (Raider path).
+    if not isML and item.rolling and not isDone then
+        local myName      = UnitName("player")
+        local alreadyRolled = item.rolls and item.rolls[myName] ~= nil
+        local btnY        = rollY - 4
+
+        local rollBtn = CreateFrame("Button", nil, panel)
+        rollBtn:SetSize(55, 20)
+        rollBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, btnY)
+
+        if not alreadyRolled then
+            -- Active: green "Roll!" button
+            local rollBg = ColorTexture(rollBtn, "BACKGROUND", 0.15, 0.35, 0.15, 0.8)
+            rollBg:SetAllPoints(rollBtn)
+            local rollTxt = rollBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            rollTxt:SetPoint("CENTER", rollBtn, "CENTER", 0, 0)
+            rollTxt:SetText("Roll!")
+            rollTxt:SetTextColor(0.5, 1.0, 0.5)
+            rollBtn:SetScript("OnEnter", function() rollBg:SetVertexColor(0.25, 0.45, 0.25, 0.8) end)
+            rollBtn:SetScript("OnLeave", function() rollBg:SetVertexColor(0.15, 0.35, 0.15, 0.8) end)
+            rollBtn:SetScript("OnClick", function() RandomRoll(1, 100) end)
+        else
+            -- Already rolled: greyed out, non-interactive
+            local rolledBg = ColorTexture(rollBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.6)
+            rolledBg:SetAllPoints(rollBtn)
+            local rolledTxt = rollBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            rolledTxt:SetPoint("CENTER", rollBtn, "CENTER", 0, 0)
+            rolledTxt:SetText("Rolled")
+            rolledTxt:SetTextColor(0.4, 0.4, 0.4)
+            rollBtn:EnableMouse(false)
+        end
+
+        rollBtn:Show()
+        rollY = btnY - 22
+    end
+
+    -- Roll list — shown during active rolling (top 3) and in history (all rolls).
+    -- Was previously gated on item.rolling, which meant done items showed no rolls.
+    if rollCount > 0 then
+        -- Sort by value desc, then name asc for tie-breaking
+        local sortedRolls = {}
+        for playerName, rollInfo in pairs(item.rolls) do
+            table.insert(sortedRolls, { name = playerName, value = rollInfo.value })
+        end
+        table.sort(sortedRolls, function(a, b)
+            if a.value ~= b.value then return a.value > b.value end
+            return a.name < b.name
+        end)
+
+        -- Live roll: cap at 3 (avoids panel growing unbounded during 25-man rolling).
+        -- History (not rolling): show all rolls so the full outcome is visible.
+        local maxRows = item.rolling and math.min(3, #sortedRolls) or #sortedRolls
+        local rollRowH = 16
+        for i = 1, maxRows do
+            local entry = sortedRolls[i]
+            local isWinner = (entry.name == item.winner)
+            local classFile = GetPlayerClass(entry.name)
+            local classTex = CLASS_TCOORDS[classFile]
+
+            -- DEBUG: log class lookup failures when debug is on
+            if addon and addon.db and addon.db.debug then
+                if not classFile then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r No class found for '" .. entry.name .. "'")
+                elseif not classTex then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r class=" .. classFile .. " but NO coords")
+                end
+            end
+
+            -- Winner highlight background
+            if isWinner then
+                local winBg = ColorTexture(panel, "BACKGROUND",
+                    0.12, 0.60, 0.12, 0.25 * alpha)
+                winBg:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, rollY)
+                winBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, rollY)
+                winBg:SetHeight(rollRowH)
+            end
+
+            -- Class icon
+            local cIcon = panel:CreateTexture(nil, "ARTWORK")
+            cIcon:SetSize(14, 14)
+            cIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+            if classTex then
+                cIcon:SetTexture(CLASS_ICON_TEX)
+                cIcon:SetTexCoord(classTex[1], classTex[2], classTex[3], classTex[4])
+            else
+                cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+
+            -- Dice icon
+            local rIcon = panel:CreateTexture(nil, "ARTWORK")
+            rIcon:SetSize(14, 14)
+            rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
+            rIcon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
+
+            -- Player name + value: winner in green, others in yellow
+            local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
+            pName:SetText(entry.name .. " (" .. tostring(entry.value) .. ")")
+            if isWinner then
+                pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
+            else
+                pName:SetTextColor(1.0 * alpha, 0.85 * alpha, 0.2 * alpha)
+            end
+
+            rollY = rollY - rollRowH - 1
+        end
+    end
+
+    -- Rerolls warning
+    if rerollCount > 0 then
+        local warnText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        warnText:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, rollY)
+        warnText:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+        warnText:SetJustifyH("LEFT")
+        local rerollNames = {}
+        for playerName, rerollInfo in pairs(item.rerolls) do
+            rerollNames[#rerollNames + 1] = playerName .. "(" .. rerollInfo.value .. "⚠️)"
+        end
+        warnText:SetText("Re-rolls: " .. table.concat(rerollNames, ", "))
+        warnText:SetTextColor(1.0, 0.4, 0.2)
+        rollY = rollY - 16
+    end
+
+    -- Calculate height
+    local totalH = PANEL_PADDING * 2 - rollY
+    if totalH < iconH + PANEL_PADDING * 2 + 20 then
+        totalH = iconH + PANEL_PADDING * 2 + 20
+    end
+    panel:SetHeight(totalH)
+
+    panel:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+    panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+
+    return panel, totalH
+end
+
+-- ---- Master Loot timer update ----
+
+function UI:UpdateMasterLootTimer(itemKey, remaining)
+    if not LootyFrame or not LootyFrame.content then return end
+    for _, child in ipairs({ LootyFrame.content:GetChildren() }) do
+        if child._mlItemIndex == itemKey and child._mlTimerBar and child._mlTimerBg then
+            local duration = child._mlDuration or LootyMasterLoot.rollDuration
+            local pct = remaining / duration
+            child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+
+            if pct < 0.25 then
+                child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+            elseif pct < 0.5 then
+                child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+            else
+                child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+            end
+
+            local mins = math.floor(remaining / 60)
+            local secs = math.floor(remaining % 60)
+            if child._mlTimerText then
+                child._mlTimerText:SetText(string.format("%d:%02d", mins, secs))
+            end
+            break
+        end
+    end
 end
 
 -- ---- Refresh the entire UI ----
@@ -815,41 +1323,181 @@ function UI:Refresh()
 
     local yOffset = -CONTENT_MARGIN
 
-    if currentTab == "active" then
+    if currentTab == "grouplot" then
+        -- Active rolls at top
         local activeRolls = addon:GetAllActiveRolls()
         for i, rollData in ipairs(activeRolls) do
             local panel, panelH = BuildRollPanel(content, rollData, yOffset, { isHistory = false })
             yOffset = yOffset - panelH - 6
         end
 
-        if #activeRolls == 0 then
-            local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            empty:SetPoint("TOP", content, "TOP", 0, -40)
-            empty:SetText("No active rolls")
-            empty:SetTextColor(0.35, 0.35, 0.35)
-            yOffset = yOffset - 50
-        end
-
-        frame.tabs.active.text:SetText("Active: " .. #activeRolls)
-
-    elseif currentTab == "history" then
+        -- Separator + completed rolls below
         local completedRolls = addon:GetCompletedRolls()
-        for i, rollData in ipairs(completedRolls) do
-            local entry, entryH = BuildRollPanel(content, rollData, yOffset, { isHistory = true })
-            yOffset = yOffset - entryH - 4
+        if #completedRolls > 0 then
+            local sepY = yOffset - 10
+            local sep = ColorTexture(content, "BORDER", 0.25, 0.25, 0.25, 0.4)
+            sep:SetPoint("TOPLEFT", content, "TOPLEFT", 4, sepY)
+            sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, sepY)
+            sep:SetHeight(1)
+            yOffset = sepY - 22
+
+            -- Clear History button (at the TOP of completed section)
+            local clearBtn = CreateFrame("Button", nil, content)
+            clearBtn:SetSize(80, 20)
+            clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
+            local clearBg = ColorTexture(clearBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.8)
+            clearBg:SetAllPoints(clearBtn)
+            local clearText = clearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            clearText:SetPoint("CENTER", clearBtn, "CENTER", 0, 0)
+            clearText:SetText("Clear History")
+            clearText:SetTextColor(0.6, 0.6, 0.6)
+            clearBtn:SetScript("OnEnter", function() clearBg:SetVertexColor(0.25, 0.25, 0.25, 0.8) end)
+            clearBtn:SetScript("OnLeave", function() clearBg:SetVertexColor(0.15, 0.15, 0.15, 0.8) end)
+            clearBtn:SetScript("OnClick", function()
+                addon.completedRolls = {}
+                addon:Print("Roll history cleared.")
+                UI:Refresh()
+            end)
+            yOffset = yOffset - 24
+
+            local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
+            doneLabel:SetText("Completed (" .. #completedRolls .. ")")
+            doneLabel:SetTextColor(0.4, 0.4, 0.4)
+            yOffset = yOffset - 16
+
+            for i, rollData in ipairs(completedRolls) do
+                local entry, entryH = BuildRollPanel(content, rollData, yOffset, { isHistory = true })
+                yOffset = yOffset - entryH - 4
+            end
         end
 
-        if #completedRolls == 0 then
+        -- Empty state
+        if #activeRolls == 0 and #completedRolls == 0 then
             local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             empty:SetPoint("TOP", content, "TOP", 0, -40)
-            empty:SetText("No completed rolls yet")
+            empty:SetText("No rolls yet")
             empty:SetTextColor(0.35, 0.35, 0.35)
             yOffset = yOffset - 50
         end
 
-        frame.tabs.history.text:SetText("History (" .. #completedRolls .. ")")
-    end
+        -- Update group tab count
+        local totalGl = #activeRolls + #completedRolls
+        frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
 
+    elseif currentTab == "master" then
+        local isML   = LootyMasterLoot and LootyMasterLoot.isML
+        local role   = LootyMasterLoot and LootyMasterLoot.role
+        local items  = isML and LootyMasterLoot.items or (LootyMasterLoot and LootyMasterLoot.remoteItems or {})
+        local mlCount = 0
+        for _, item in pairs(items) do
+            if not item.isDone then mlCount = mlCount + 1 end
+        end
+
+        -- ---- Role badge ----
+        -- Shown whenever master loot is active.
+        -- Loot method label (always shown in ML mode)
+        if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+            local methodLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            methodLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            methodLabel:SetText("Loot: Master")
+            methodLabel:SetTextColor(0.7, 0.7, 0.7)
+            yOffset = yOffset - 16
+        end
+
+        -- Role label (MasterLooter = gold, Raider = blue)
+        if role == "MasterLooter" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: MasterLooter")
+            roleLabel:SetTextColor(1.0, 0.82, 0.0)
+            yOffset = yOffset - 18
+
+        elseif role == "Raider" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: Raider")
+            roleLabel:SetTextColor(0.4, 0.7, 1.0)
+            yOffset = yOffset - 18
+        end
+
+        if mlCount > 0 then
+            for _, item in pairs(items) do
+                if not item.isDone then
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isML = isML })
+                    yOffset = yOffset - panelH - 4
+                end
+            end
+        end
+
+        -- Show done items with reduced opacity.
+        -- ML uses GetDoneItems() (self.items); Raider uses GetRemoteDoneItems() (remoteItems).
+        if LootyMasterLoot then
+            local doneItems = isML
+                and LootyMasterLoot:GetDoneItems()
+                or  LootyMasterLoot:GetRemoteDoneItems()
+
+            if #doneItems > 0 then
+                local sepY = yOffset - 10
+                local sep = ColorTexture(content, "BORDER", 0.25, 0.25, 0.25, 0.4)
+                sep:SetPoint("TOPLEFT", content, "TOPLEFT", 4, sepY)
+                sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, sepY)
+                sep:SetHeight(1)
+                yOffset = sepY - 22
+
+                -- Clear Done button — routes to the correct clear function by role
+                local clearBtn = CreateFrame("Button", nil, content)
+                clearBtn:SetSize(80, 20)
+                clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
+                local clearBg = ColorTexture(clearBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.8)
+                clearBg:SetAllPoints(clearBtn)
+                local clearText = clearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                clearText:SetPoint("CENTER", clearBtn, "CENTER", 0, 0)
+                clearText:SetText("Clear Done")
+                clearText:SetTextColor(0.6, 0.6, 0.6)
+                clearBtn:SetScript("OnEnter", function() clearBg:SetVertexColor(0.25, 0.25, 0.25, 0.8) end)
+                clearBtn:SetScript("OnLeave", function() clearBg:SetVertexColor(0.15, 0.15, 0.15, 0.8) end)
+                clearBtn:SetScript("OnClick", function()
+                    if isML then
+                        LootyMasterLoot:ClearDone()
+                    else
+                        LootyMasterLoot:ClearRemoteDone()
+                    end
+                end)
+                yOffset = yOffset - 24
+
+                local doneLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                doneLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 8, yOffset)
+                doneLabel:SetText("Done (" .. #doneItems .. ")")
+                doneLabel:SetTextColor(0.4, 0.4, 0.4)
+                yOffset = yOffset - 16
+
+                for _, item in ipairs(doneItems) do
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isDone = true, isML = isML })
+                    yOffset = yOffset - panelH - 4
+                end
+            end
+        end
+
+        if mlCount == 0 then
+            local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            empty:SetPoint("TOP", content, "TOP", 0, -40)
+            if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+                if role == "Raider" then
+                    empty:SetText("Waiting for MasterLooter to open a corpse...")
+                else
+                    empty:SetText("No items looted yet — open a corpse with loot")
+                end
+            else
+                empty:SetText("Not in Master Loot mode")
+            end
+            empty:SetTextColor(0.35, 0.35, 0.35)
+            yOffset = yOffset - 50
+        end
+
+        -- Update master tab text
+        frame.tabs.master.text:SetText("Master: " .. mlCount)
+    end
     -- Always update both tab counts
     UI:UpdateTabCounts()
 
@@ -878,30 +1526,62 @@ end
 function UI:UpdateTimers()
     local frame = LootyFrame
     if not frame or not frame:IsShown() then return end
-    if currentTab ~= "active" then return end
-
     local content = frame.content
-    for _, child in ipairs({ content:GetChildren() }) do
-        if child.rollID and child.timerBar and child.timerBar:IsShown() then
-            local elapsed = GetTime() - child.startTime
-            local remaining = math.max(0, child.duration - elapsed)
-            local pct = remaining / child.duration
 
-            local bgWidth = child.timerBg:GetWidth()
-            child.timerBar:SetWidth(bgWidth * pct)
+    -- GroupLoot timers (only update when on that tab — visible timers)
+    if currentTab == "grouplot" then
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.rollID and child.timerBar and child.timerBar:IsShown() then
+                local elapsed = GetTime() - child.startTime
+                local remaining = math.max(0, child.duration - elapsed)
+                local pct = remaining / child.duration
 
-            if pct < 0.25 then
-                child.timerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
-            elseif pct < 0.5 then
-                child.timerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
-            else
-                child.timerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                local bgWidth = child.timerBg:GetWidth()
+                child.timerBar:SetWidth(bgWidth * pct)
+
+                if pct < 0.25 then
+                    child.timerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                elseif pct < 0.5 then
+                    child.timerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                else
+                    child.timerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                end
+
+                local mins = math.floor(remaining / 60)
+                local secs = math.floor(remaining % 60)
+                if child.timerText then
+                    child.timerText:SetText(string.format("%d:%02d", mins, secs))
+                end
             end
+        end
+    end
 
-            local mins = math.floor(remaining / 60)
-            local secs = math.floor(remaining % 60)
-            if child.timerText then
-                child.timerText:SetText(string.format("%d:%02d", mins, secs))
+    -- MasterLoot timer (update when on Master tab — visible timer).
+    -- Gate on active, not currentRoll: currentRoll is nil on the Raider client
+    -- (only the ML sets it), so the Raider's timer would never update otherwise.
+    if currentTab == "master" and LootyMasterLoot and LootyMasterLoot.active then
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child._mlItemIndex and child._mlTimerBar and child._mlRollStart then
+                local elapsed = GetTime() - child._mlRollStart
+                local remaining = math.max(0, child._mlDuration - elapsed)
+                local duration = child._mlDuration or LootyMasterLoot.rollDuration
+                local pct = remaining / duration
+
+                child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+
+                if pct < 0.25 then
+                    child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                elseif pct < 0.5 then
+                    child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                else
+                    child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                end
+
+                local mins = math.floor(remaining / 60)
+                local secs = math.floor(remaining % 60)
+                if child._mlTimerText then
+                    child._mlTimerText:SetText(string.format("%d:%02d", mins, secs))
+                end
             end
         end
     end
