@@ -2,7 +2,7 @@
 -- Owns: Item class, Session object, role detection, protocol send/receive.
 -- No UI code. No event registration (Core delegates here).
 
-local addon = Looty
+-- MasterLoot references the Looty global directly at call time (never at load time)
 
 -- ============================================================
 -- ---- Protocol constants ----
@@ -272,8 +272,8 @@ function MasterLoot:ResolveRole()
 
     if method ~= "master" then
         self.session = nil
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[ML] ResolveRole: method=%s → no session", method))
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[ML] ResolveRole: method=%s → no session", method))
         end
         return
     end
@@ -287,9 +287,9 @@ function MasterLoot:ResolveRole()
         self.session = Session.new(role)
     end
 
-    if addon.db and addon.db.debug then
-        addon:Print(string.format("[ML] ResolveRole: method=%s role=%s", method, role))
-    end
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[ML] ResolveRole: method=%s role=%s", method, role))
+        end
 end
 
 -- ============================================================
@@ -298,8 +298,8 @@ end
 
 function MasterLoot:Initialize()
     self:ResolveRole()
-    if addon.db and addon.db.debug then
-        addon:Print(string.format("[ML] Initialize: role=%s active=%s",
+    if Looty.db and Looty.db.debug then
+        Looty:Print(string.format("[ML] Initialize: role=%s active=%s",
             tostring(self:GetRole()), tostring(self:IsActive())))
     end
 end
@@ -347,9 +347,9 @@ function MasterLoot:OnLootOpened()
     self:ResolveRole()
     if not self:IsActive() then return end
 
-    if addon.db and addon.db.debug then
+    if Looty.db and Looty.db.debug then
         local method, partyID, raidID = GetLootMethod()
-        addon:Print(string.format("[ML] OnLootOpened: method=%s partyID=%s raidID=%s role=%s",
+        Looty:Print(string.format("[ML] OnLootOpened: method=%s partyID=%s raidID=%s role=%s",
             tostring(method), tostring(partyID), tostring(raidID), tostring(self:GetRole())))
     end
 
@@ -376,8 +376,8 @@ function MasterLoot:OnLootOpened()
         self:SendMessage(self:SerializeItem(item))
     end
 
-    if addon.db and addon.db.debug then
-        addon:Print("[ML] Loot opened: " .. self.session:GetActiveItemCount() .. " items broadcast.")
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[ML] Loot opened: " .. self.session:GetActiveItemCount() .. " items broadcast.")
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
@@ -413,8 +413,8 @@ function MasterLoot:FlushQueue()
     local msg     = table.remove(self.pendingMsgs, 1)
     local channel = (GetNumRaidMembers() > 0) and "RAID" or "PARTY"
 
-    if addon.db and addon.db.debug then
-        addon:Print(string.format("[ML] SEND channel=%s msg=%.50s", channel, msg))
+    if Looty.db and Looty.db.debug then
+        Looty:Print(string.format("[ML] SEND channel=%s msg=%.50s", channel, msg))
     end
 
     SendAddonMessage("LOOTY", msg, channel)
@@ -472,15 +472,15 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
         -- First item received → record who the ML is
         if not self.session.mlName then
             self.session.mlName = sender
-            if addon.db and addon.db.debug then
-                addon:Print("[ML] Raider: first ITEM received, ML is " .. sender)
+            if Looty.db and Looty.db.debug then
+                Looty:Print("[ML] Raider: first ITEM received, ML is " .. sender)
             end
         end
         local item = self:DeserializeItem(message)
         if item then
             self.session.items[item.itemKey] = item
-            if addon.db and addon.db.debug then
-                addon:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
+            if Looty.db and Looty.db.debug then
+                Looty:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
             end
         end
 
@@ -546,7 +546,7 @@ function MasterLoot:StartRoll(itemKey)
     local msg = ">> Rolling for: " .. (item.link or item.name) ..
                 " — /roll now! (" .. self.rollDuration .. "s)"
     SendChatMessage(msg, "RAID_WARNING")
-    addon:Print(msg)
+    Looty:Print(msg)
 
     self:SendMessage("ROLL_START" .. SEP .. itemKey)
     self.rollTimer = self:CreateTimer(itemKey)
@@ -571,9 +571,9 @@ function MasterLoot:EndRoll(itemKey)
         local msg = ">> " .. winner .. " wins " .. (item.link or item.name) ..
                     " with " .. winValue .. "!"
         SendChatMessage(msg, "RAID_WARNING")
-        addon:Print(msg)
+        Looty:Print(msg)
     else
-        addon:Print("No rolls for " .. (item.link or item.name))
+        Looty:Print("No rolls for " .. (item.link or item.name))
     end
 
     self:SendMessage("ROLL_END" .. SEP .. itemKey .. SEP .. (winner or "none"))
@@ -618,13 +618,13 @@ function MasterLoot:RecordRoll(playerName, value)
     local result = item:RecordRoll(playerName, value)
 
     if result == "reroll" then
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[ML] REROLL detected: %s rolled %d (first: %d)",
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[ML] REROLL detected: %s rolled %d (first: %d)",
                 playerName, value, item.rolls[playerName] and item.rolls[playerName].value or 0))
         end
     elseif result == "ok" then
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[ML] Roll recorded: %s = %d on %s",
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[ML] Roll recorded: %s = %d on %s",
                 playerName, value, item.name))
         end
         if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
@@ -729,7 +729,7 @@ function MasterLoot:InjectTestRolls()
     self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3 }
     self.session.currentRoll = "18815:1"
 
-    addon:Print("Master Loot test data injected — 2 pending, 1 done. Role: MasterLooter")
+    Looty:Print("Master Loot test data injected — 2 pending, 1 done. Role: MasterLooter")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
     if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end
@@ -774,7 +774,7 @@ function MasterLoot:InjectRemoteTest()
     self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3 }
     self.session.currentRoll = "18815:1"
 
-    addon:Print("Remote test data injected — 2 pending, 1 done. Role: Raider  ML: TestMaster")
+    Looty:Print("Remote test data injected — 2 pending, 1 done. Role: Raider  ML: TestMaster")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
     if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end

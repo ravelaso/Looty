@@ -2,7 +2,7 @@
 -- Owns all Group Loot state: active rolls, completed roll history,
 -- and the domain operations on them. No UI, no events — pure domain.
 
-local addon = Looty
+-- GroupLoot references the Looty global directly at call time (never at load time)
 
 -- ============================================================
 -- ---- LootRoll: a single Group Loot roll entry ----
@@ -191,16 +191,16 @@ function GroupLoot:RecordChoice(rollID, playerName, rollType, value)
         end
     end
     if not roll then
-        if addon.db and addon.db.debug then
-            addon:Print("[GroupLoot] RecordChoice FAILED — no roll " .. rollID)
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[GroupLoot] RecordChoice FAILED — no roll " .. rollID)
         end
         return false
     end
 
     local ok = roll:RecordChoice(playerName, rollType, value)
     if ok then
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[GroupLoot] RecordChoice OK — %s type=%s val=%s on %s",
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[GroupLoot] RecordChoice OK — %s type=%s val=%s on %s",
                 playerName, rollType, tostring(value), roll.name))
         end
         LootyUI:Refresh()
@@ -312,7 +312,7 @@ function GroupLoot:InjectTestRolls()
     }
     self.completedRolls = { r2 }
 
-    addon:Print("Group Loot test data injected — 1 active, 1 history (25-player raid).")
+    Looty:Print("Group Loot test data injected — 1 active, 1 history (25-player raid).")
 
     if LootyFrame and not LootyFrame:IsShown() then LootyFrame:Show() end
     LootyUI:Refresh()

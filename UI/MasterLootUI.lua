@@ -3,7 +3,7 @@
 -- Reads from LootyMasterLoot (domain) and LootyItem objects.
 -- Uses primitives from UI/Primitives.lua.
 
-local addon = Looty
+-- MasterLootUI references Looty globally at call time (never at load time)
 
 -- ============================================================
 -- ---- Determine what action buttons a player can take ----

@@ -3,8 +3,8 @@
 -- Reads from LootyGroupLoot (domain) and LootyLootRoll objects.
 -- Uses primitives from UI/Primitives.lua.
 
-local addon = Looty
-local L     = Looty_L
+-- GroupLootUI references Looty globally at call time (never at load time)
+local L = Looty_L
 
 -- ============================================================
 -- ---- Constants ----

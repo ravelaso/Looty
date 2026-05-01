@@ -6,13 +6,13 @@
 ## SavedVariables: Looty_SavedVars
 
 ## Load order:
-##   1. Locale strings and patterns
-##   2. Domain modules (no UI, no events)
-##   3. UI primitives (shared widget factories and constants)
-##   4. UI sub-modules (tab content renderers)
-##   5. UI frame (window, tabs, Refresh loop)
-##   6. Parser (chat message → domain mutations)
-##   7. Core (event bus, lifecycle, slash commands)
+##   1. Locale     — strings and patterns (no Looty reference)
+##   2. Domain     — GroupLoot, MasterLoot (reference Looty inside functions only)
+##   3. UI         — Primitives, tab renderers, Frame (same)
+##   4. Parser     — chat message routing (same)
+##   5. Core       — LAST: creates LootyCore frame, sets global Looty,
+##                   registers events. By this point all modules are defined.
+##                   No module references Looty at file load time.
 
 Locales\enUS.lua
 

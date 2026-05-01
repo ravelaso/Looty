@@ -3,7 +3,7 @@
 -- Delegates tab content rendering to GroupLootUI and MasterLootUI.
 -- No domain logic. No direct reads of GroupLoot/MasterLoot state.
 
-local addon = Looty
+-- Frame references Looty globally at call time (never at load time)
 
 local UI = {}
 LootyUI  = UI
@@ -121,12 +121,14 @@ function UI:Create()
     tabSep:SetPoint("BOTTOMRIGHT", tabBar, "BOTTOMRIGHT", 0, 0)
     tabSep:SetHeight(1)
 
-    -- Helper to create a tab button
-    local function MakeTab(parent, label, w, anchorLeft, anchorOffset, onClick)
+    -- Helper to create a tab button.
+    -- anchorRelative: the frame to anchor LEFT against
+    -- anchorPoint:    "LEFT" or "RIGHT" on anchorRelative
+    -- anchorOffset:   pixel offset
+    local function MakeTab(parent, label, w, anchorRelative, anchorPoint, anchorOffset, onClick)
         local btn = CreateFrame("Button", nil, parent)
         btn:SetSize(w, TH - 2)
-        btn:SetPoint("LEFT", anchorLeft, anchorOffset == 0 and "LEFT" or "RIGHT",
-            anchorOffset, 0)
+        btn:SetPoint("LEFT", anchorRelative, anchorPoint, anchorOffset, 0)
         btn:EnableMouse(true)
         btn:SetScript("OnClick", onClick)
 
@@ -155,11 +157,13 @@ function UI:Create()
 
     frame.tabs = {}
 
-    local glTab = MakeTab(tabBar, "Group: 0", 95, tabBar, 6, function() UI:SwitchTab("grouplot") end)
+    -- GroupLoot tab: LEFT of tab anchors to LEFT of tabBar + 6px
+    local glTab = MakeTab(tabBar, "Group: 0",  95, tabBar, "LEFT",  6, function() UI:SwitchTab("grouplot") end)
     glTab._tabID = "grouplot"
     frame.tabs.grouplot = glTab
 
-    local mlTab = MakeTab(tabBar, "Master: 0", 85, glTab, 0, function() UI:SwitchTab("master") end)
+    -- Master tab: LEFT of tab anchors to RIGHT of GroupLoot tab
+    local mlTab = MakeTab(tabBar, "Master: 0", 85, glTab,  "RIGHT", 0, function() UI:SwitchTab("master") end)
     mlTab._tabID = "master"
     frame.tabs.master = mlTab
 
@@ -173,7 +177,7 @@ function UI:Create()
     frame:RegisterForDrag("LeftButton")
     frame:SetMovable(true)
     frame:SetScript("OnDragStart", function(self)
-        if not addon.db.locked then self:StartMoving() end
+        if not Looty.db.locked then self:StartMoving() end
     end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 
@@ -366,9 +370,9 @@ end
 function UI:UpdateMovable()
     local frame = LootyFrame
     if not frame then return end
-    frame:SetMovable(not addon.db.locked)
-    frame:SetResizable(not addon.db.locked)
-    if frame.grip then frame.grip:EnableMouse(not addon.db.locked) end
+    frame:SetMovable(not Looty.db.locked)
+    frame:SetResizable(not Looty.db.locked)
+    if frame.grip then frame.grip:EnableMouse(not Looty.db.locked) end
 end
 
 -- Called by GroupLoot:FinalizeRoll to clean up accordion state

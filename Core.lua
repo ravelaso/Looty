@@ -1,6 +1,10 @@
 -- Looty Core
 -- Pure event bus and addon lifecycle.
 -- No domain logic lives here — delegates to GroupLoot and MasterLoot.
+-- Core.lua loads LAST in the toc so that all domain and UI modules are
+-- already defined when events fire. The Looty global is set here and
+-- all other files reference it at call time (inside functions), never
+-- at module load time — so load order does not cause nil issues.
 
 local addon = CreateFrame("Frame", "LootyCore", UIParent)
 Looty = addon

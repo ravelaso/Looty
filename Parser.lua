@@ -4,8 +4,8 @@
 -- and MasterLoot (master loot /roll values).
 -- No state of its own.
 
-local addon = Looty
-local L     = Looty_L
+-- Parser references Looty globally at call time (never at load time)
+local L = Looty_L
 
 local Parser = {}
 LootyParser  = Parser
@@ -102,16 +102,16 @@ end
 function Parser:ProcessMessage(message)
     if not message then return end
 
-    if addon.db and addon.db.debug then
-        addon:Print("[PARSE] " .. message)
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[PARSE] " .. message)
     end
 
     -- 1. Roll result (type + value + item + player)
     local rollType, value, itemName, playerName = self:ParseRollResult(message)
     if rollType and value and playerName then
         local rollID = FindRollByItem(itemName)
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[PARSE] RESULT type=%s val=%d item=%s player=%s rollID=%s",
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[PARSE] RESULT type=%s val=%d item=%s player=%s rollID=%s",
                 rollType, value, tostring(itemName), playerName, tostring(rollID)))
         end
         if rollID then
@@ -123,8 +123,8 @@ function Parser:ProcessMessage(message)
     -- 2. Roll type selection (no value yet)
     local rawName, iName, rType = self:ParseMessageType(message)
     if iName and rType then
-        if addon.db and addon.db.debug then
-            addon:Print(string.format("[PARSE] TYPE type=%s item=%s name=%s",
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[PARSE] TYPE type=%s item=%s name=%s",
                 rType, tostring(iName), tostring(rawName)))
         end
         local rollID = FindRollByItem(iName)
@@ -138,8 +138,8 @@ function Parser:ProcessMessage(message)
     -- 3. "You won: [Item]"
     local wonItem = string.match(message, "^You won:%s*(.+)$")
     if wonItem then
-        if addon.db and addon.db.debug then
-            addon:Print("[PARSE] WON (self): " .. wonItem)
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[PARSE] WON (self): " .. wonItem)
         end
         local rollID = FindRollByItem(wonItem)
         if rollID then
@@ -155,8 +155,8 @@ function Parser:ProcessMessage(message)
     -- 4. "X won: [Item]"
     local winner, wonItem2 = string.match(message, "^(.-) won:%s*(.+)$")
     if winner and wonItem2 then
-        if addon.db and addon.db.debug then
-            addon:Print("[PARSE] WON (other): " .. winner .. " → " .. wonItem2)
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[PARSE] WON (other): " .. winner .. " → " .. wonItem2)
         end
         local rollID = FindRollByItem(wonItem2)
         if rollID then
@@ -172,16 +172,16 @@ function Parser:ProcessMessage(message)
     -- 5. "Nobody won: [Item]"
     local nobodyItem = string.match(message, "^Nobody won:%s*(.+)$")
     if nobodyItem then
-        if addon.db and addon.db.debug then
-            addon:Print("[PARSE] WON (nobody): " .. nobodyItem)
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[PARSE] WON (nobody): " .. nobodyItem)
         end
         local rollID = FindRollByItem(nobodyItem)
         if rollID then LootyGroupLoot:FinalizeRoll(rollID) end
         return
     end
 
-    if addon.db and addon.db.debug then
-        addon:Print("[PARSE] no match")
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[PARSE] no match")
     end
 end
 
@@ -192,8 +192,8 @@ end
 function Parser:ProcessSystemMessage(message)
     if not message then return end
 
-    if addon.db and addon.db.debug then
-        addon:Print("[SYS] " .. message)
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[SYS] " .. message)
     end
 
     for _, pattern in ipairs(L.MASTER_ROLL_PATTERNS) do
@@ -212,8 +212,8 @@ function Parser:ProcessSystemMessage(message)
                 else
                     playerName = nameOrValue
                 end
-                if addon.db and addon.db.debug then
-                    addon:Print(string.format("[SYS] /roll match: %s = %d", playerName, value))
+                if Looty.db and Looty.db.debug then
+                    Looty:Print(string.format("[SYS] /roll match: %s = %d", playerName, value))
                 end
                 LootyMasterLoot:RecordRoll(playerName, value)
                 return
@@ -224,8 +224,8 @@ function Parser:ProcessSystemMessage(message)
     -- "X won" in system chat (some private servers route this here)
     local winner, wonItem = string.match(message, "^(.-) won:%s*(.+)$")
     if winner and wonItem then
-        if addon.db and addon.db.debug then
-            addon:Print("[SYS] WON (system): " .. winner .. " → " .. wonItem)
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[SYS] WON (system): " .. winner .. " → " .. wonItem)
         end
         local rollID = self:FindRollByItem(wonItem)
         if rollID then
@@ -238,8 +238,8 @@ function Parser:ProcessSystemMessage(message)
         return
     end
 
-    if addon.db and addon.db.debug then
-        addon:Print("[SYS] no match")
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[SYS] no match")
     end
 end
 
