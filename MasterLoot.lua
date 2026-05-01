@@ -32,13 +32,16 @@ MasterLoot.rollTimer   = nil  -- Frame for roll countdown
 MasterLoot.rollDuration = 30  -- Seconds for each roll
 
 -- Remote state (for Raider clients receiving sync from ML)
-MasterLoot.remoteMode  = false  -- true once role is "Raider" and ML mode is active
-MasterLoot.remoteItems = {}     -- Mirror of ML's items (indexed by item index)
-MasterLoot.remoteML    = nil    -- Name of the ML we are tracking
+MasterLoot.remoteMode       = false  -- true once role is "Raider" and ML mode is active
+MasterLoot.remoteItems      = {}     -- Mirror of ML's items (indexed by item index)
+MasterLoot.remoteML         = nil    -- Name of the ML we are tracking
+MasterLoot.currentRemoteRoll = nil   -- Index of the remoteItem currently rolling (Raider side)
 
 -- Throttle for SendAddonMessage (WoW 3.3.5 rate-limit protection).
--- Items are queued and sent one by one with a 0.5 s gap.
-MasterLoot.msgThrottle  = 0.5  -- Min seconds between auto-messages
+-- 0.1 s = max 10 msgs/s × ~120 bytes = ~1200 CPS, well within ChatThrottleLib's
+-- researched safe limit of 800 CPS sustained / 4000-byte burst before disconnect.
+-- A 25-man full boss loot (~30 msgs, ~3600 bytes) completes in ~3 s at this rate.
+MasterLoot.msgThrottle  = 0.1  -- Min seconds between auto-messages
 MasterLoot.lastMsgTime  = 0    -- Timestamp of last message sent
 MasterLoot.pendingItems = {}   -- Queue for messages waiting to be sent
 MasterLoot.sendTimer    = nil  -- Timer frame for throttled sending
@@ -334,10 +337,11 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
     elseif string.sub(message, 1, 11) == "ROLL_START" .. SEP then
         local idx = tonumber(string.sub(message, 12))
         if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].rolling   = true
-            self.remoteItems[idx].rollStart = GetTime()
-            self.remoteItems[idx].rolls     = {}
-            self.remoteItems[idx].rerolls   = {}
+            self.remoteItems[idx].rolling    = true
+            self.remoteItems[idx].rollStart  = GetTime()
+            self.remoteItems[idx].rolls      = {}
+            self.remoteItems[idx].rerolls    = {}
+            self.currentRemoteRoll           = idx  -- track for Raider roll capture
         end
 
     elseif string.sub(message, 1, 9) == "ROLL_END" .. SEP then
@@ -355,6 +359,7 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
             self.remoteItems[idx].rollStart = nil
             self.remoteItems[idx].winner    = (winner and winner ~= "none") and winner or nil
         end
+        self.currentRemoteRoll = nil  -- roll over, stop capturing
 
     elseif string.sub(message, 1, 10) == "ITEM_DONE" .. SEP then
         local idx = tonumber(string.sub(message, 11))
@@ -558,17 +563,31 @@ function MasterLoot:CreateTimer(itemIndex)
 end
 
 -- ============================================================
--- ---- Roll recording (ML side, driven by Parser) ----
+-- ---- Roll recording (ML and Raider, driven by Parser) ----
 -- ============================================================
 
 function MasterLoot:RecordRoll(playerName, value, itemName)
     if not self.active then return end
-    if not self.currentRoll then return end
 
-    local item = self.items[self.currentRoll]
+    local item
+
+    if self.isML then
+        -- ML path: use its own items table and currentRoll index
+        if not self.currentRoll then return end
+        item = self.items[self.currentRoll]
+    elseif self.remoteMode then
+        -- Raider path: use remoteItems and currentRemoteRoll index.
+        -- CHAT_MSG_SYSTEM fires locally for all group members, so Raiders
+        -- receive the same /roll messages as the ML without any extra protocol.
+        if not self.currentRemoteRoll then return end
+        item = self.remoteItems[self.currentRemoteRoll]
+    else
+        return
+    end
+
     if not item or not item.rolling then return end
 
-    -- Duplicate roll → cheating detection
+    -- Duplicate roll → cheating detection (same logic for both roles)
     if item.rolls[playerName] then
         item.rerolls[playerName] = { value = value, time = GetTime() }
         if addon.db and addon.db.debug then
@@ -656,6 +675,34 @@ function MasterLoot:GetDoneItems()
         end
     end
     return items
+end
+
+-- Raider equivalents: operate on remoteItems (sparse table, iterate by index)
+function MasterLoot:GetRemoteDoneItems()
+    local items = {}
+    -- Collect indices first so we can sort them descending (most recent last = first in list)
+    local indices = {}
+    for idx in pairs(self.remoteItems) do
+        table.insert(indices, idx)
+    end
+    table.sort(indices, function(a, b) return a > b end)
+    for _, idx in ipairs(indices) do
+        if self.remoteItems[idx].isDone then
+            table.insert(items, self.remoteItems[idx])
+        end
+    end
+    return items
+end
+
+function MasterLoot:ClearRemoteDone()
+    for idx in pairs(self.remoteItems) do
+        if self.remoteItems[idx].isDone then
+            self.remoteItems[idx] = nil
+        end
+    end
+    if LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
 end
 
 function MasterLoot:GetActiveItemCount()
