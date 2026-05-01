@@ -58,6 +58,11 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("LOOT_CLOSED")
     self:RegisterEvent("CHAT_MSG_SYSTEM")
 
+    -- Addon message event (for Master Loot sync)
+    self:RegisterEvent("CHAT_MSG_ADDON")
+
+    -- Class cache: refresh when raid/party composition changes
+
     -- Class cache: refresh when raid/party composition changes
     self:RegisterEvent("GROUP_ROSTER_UPDATE")
 
@@ -201,6 +206,14 @@ end
 function addon:CHAT_MSG_SYSTEM(event, message)
     -- Delegate to Parser for /roll message detection
     LootyParser:ProcessSystemMessage(message)
+end
+
+function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
+    -- Only process messages for Looty (prefix = "LOOTY")
+    if prefix ~= "LOOTY" then return end
+    if LootyMasterLoot then
+        LootyMasterLoot:OnAddonMessage(prefix, message, distribution, sender)
+    end
 end
 
 function addon:GROUP_ROSTER_UPDATE(event)
@@ -347,6 +360,13 @@ SlashCmdList["LOOTY"] = function(msg)
         else
             addon:Print("Master Loot module not loaded.")
         end
+    elseif msg == "mtestremote" then
+        -- Inject remote test data (simulate receiving items from ML)
+        if LootyMasterLoot then
+            LootyMasterLoot:InjectRemoteTest()
+        else
+            addon:Print("Master Loot module not loaded.")
+        end
     elseif msg == "debug" then
         addon.db.debug = not addon.db.debug
         addon:Print("Debug " .. (addon.db.debug and "ON" or "OFF"))
@@ -357,6 +377,7 @@ SlashCmdList["LOOTY"] = function(msg)
         addon:Print("  /looty clear  - Clear completed roll history")
         addon:Print("  /looty test   - Inject mock Group Loot rolls")
         addon:Print("  /looty mtest  - Inject mock Master Loot data")
+        addon:Print("  /looty mtestremote - Inject mock remote ML data")
         addon:Print("  /looty debug  - Toggle data debug")
     end
 end

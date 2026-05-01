@@ -929,11 +929,12 @@ function UI:ClearExpandedState(rollID)
 end
 
 -- ---- Build Master Loot item panel ----
--- opts: { isDone: bool }
+-- opts: { isDone: bool, isML: bool }
 
 local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
     opts = opts or {}
     local isDone = opts.isDone or false
+    local isML = opts.isML or false
     local alpha = isDone and 0.5 or 1.0
     local qColor = QUALITY_COLORS[item.quality] or QUALITY_COLORS[2]
 
@@ -1327,11 +1328,26 @@ function UI:Refresh()
         frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
 
     elseif currentTab == "master" then
-        local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
-        if mlCount > 0 and LootyMasterLoot then
-            for i, item in ipairs(LootyMasterLoot.items) do
+        local isML = LootyMasterLoot and LootyMasterLoot.isML
+        local items = isML and LootyMasterLoot.items or (LootyMasterLoot and LootyMasterLoot.remoteItems or {})
+        local mlCount = 0
+        for _, item in pairs(items) do
+            if not item.isDone then mlCount = mlCount + 1 end
+        end
+
+        -- Show "Spectator Mode" indicator if not ML
+        if not isML and LootyMasterLoot and LootyMasterLoot.remoteMode then
+            local spectatorText = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            spectatorText:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            spectatorText:SetText("Spectating - ML: " .. (LootyMasterLoot.remoteML or "Unknown"))
+            spectatorText:SetTextColor(0.5, 0.5, 1.0)
+            yOffset = yOffset - 16
+        end
+
+        if mlCount > 0 then
+            for i, item in pairs(items) do
                 if not item.isDone then
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset)
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
@@ -1372,7 +1388,7 @@ function UI:Refresh()
                 yOffset = yOffset - 16
 
                 for i, item in ipairs(doneItems) do
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true })
+                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true, isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
