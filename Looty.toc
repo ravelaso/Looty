@@ -2,11 +2,27 @@
 ## Title: Looty
 ## Notes: Tracks group loot and master loot rolls in a compact window.
 ## Author: Ravelo
-## Version: 1.0.0
+## Version: 2.0.0
 ## SavedVariables: Looty_SavedVars
 
+## Load order:
+##   1. Locale     — strings and patterns (no Looty reference)
+##   2. Domain     — GroupLoot, MasterLoot (reference Looty inside functions only)
+##   3. UI         — Primitives, tab renderers, Frame (same)
+##   4. Parser     — chat message routing (same)
+##   5. Core       — LAST: creates LootyCore frame, sets global Looty,
+##                   registers events. By this point all modules are defined.
+##                   No module references Looty at file load time.
+
 Locales\enUS.lua
-Core.lua
-Parser.lua
+
+GroupLoot.lua
 MasterLoot.lua
-UI.lua
+
+UI\Primitives.lua
+UI\GroupLootUI.lua
+UI\MasterLootUI.lua
+UI\Frame.lua
+
+Parser.lua
+Core.lua
