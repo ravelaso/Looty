@@ -147,7 +147,7 @@ function GroupLoot:StartRoll(rollID, duration)
         bindOnPickUp, canNeed, canGreed, canDisenchant, duration
     )
 
-    addon:Print("New roll: " .. name)
+    Looty:Print("New roll: " .. name)
     LootyUI:Refresh()
 
     if LootyUI.SwitchTab then
@@ -229,7 +229,7 @@ end
 
 function GroupLoot:ClearHistory()
     self.completedRolls = {}
-    addon:Print("Roll history cleared.")
+    Looty:Print("Roll history cleared.")
     LootyUI:Refresh()
 end
 
