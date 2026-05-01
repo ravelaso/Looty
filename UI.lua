@@ -63,6 +63,10 @@ local classCache = {}
 --   2. Raid roster (GetRaidRosterInfo)
 --   3. Party roster (UnitClass on party units)
 --   4. Falls back to nil → caller shows question mark
+-- 3.3.5 API note: IsInRaid/GetNumGroupMembers do NOT exist (added in 5.0.4).
+-- Use GetNumRaidMembers() > 0 to detect a raid group.
+-- Use GetNumRaidMembers() / GetNumPartyMembers() for iteration counts.
+
 local function GetPlayerClass(playerName)
     -- 1. Check cache first
     if classCache[playerName] then
@@ -71,10 +75,9 @@ local function GetPlayerClass(playerName)
 
     local classFileName
 
-    -- 2. Check raid roster
-    local inRaid = IsInRaid()
-    if inRaid then
-        for i = 1, GetNumGroupMembers() do
+    -- 2. Raid roster
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, cls = GetRaidRosterInfo(i)
             if name == playerName then
                 classFileName = cls
@@ -82,13 +85,13 @@ local function GetPlayerClass(playerName)
             end
         end
     else
-        -- 3. Check party
+        -- 3. Party or solo — check self then party slots
         local name = UnitName("player")
         if name == playerName then
             local _, cls = UnitClass("player")
             classFileName = cls
         else
-            for i = 1, GetNumGroupMembers() - 1 do
+            for i = 1, GetNumPartyMembers() do
                 local unit = "party" .. i
                 if UnitName(unit) == playerName then
                     local _, cls = UnitClass(unit)
@@ -110,8 +113,8 @@ end
 -- Pre-populate class cache from current roster.
 -- Call this on raid/party changes and during Initialize.
 function UI:RefreshClassCache()
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, cls = GetRaidRosterInfo(i)
             if name and cls then
                 classCache[name] = cls
@@ -123,7 +126,7 @@ function UI:RefreshClassCache()
             local _, cls = UnitClass("player")
             classCache[name] = cls
         end
-        for i = 1, GetNumGroupMembers() - 1 do
+        for i = 1, GetNumPartyMembers() do
             local unit = "party" .. i
             local n = UnitName(unit)
             if n then
@@ -929,11 +932,12 @@ function UI:ClearExpandedState(rollID)
 end
 
 -- ---- Build Master Loot item panel ----
--- opts: { isDone: bool }
+-- opts: { isDone: bool, isML: bool }
 
 local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
     opts = opts or {}
     local isDone = opts.isDone or false
+    local isML = opts.isML or false
     local alpha = isDone and 0.5 or 1.0
     local qColor = QUALITY_COLORS[item.quality] or QUALITY_COLORS[2]
 
@@ -1120,9 +1124,48 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
         rollY = rollY - 24
     end
 
-    -- Roll list (if there are rolls) — individual rows with class icons
-    if item.rolling and rollCount > 0 then
-        -- Sort rolls by value desc
+    -- Roll button (for Raider when a roll is active)
+    -- RandomRoll(1, 100) is the 3.3.5 API for /roll 1 100.
+    -- It fires CHAT_MSG_SYSTEM, which Parser captures → RecordRoll (Raider path).
+    if not isML and item.rolling and not isDone then
+        local myName      = UnitName("player")
+        local alreadyRolled = item.rolls and item.rolls[myName] ~= nil
+        local btnY        = rollY - 4
+
+        local rollBtn = CreateFrame("Button", nil, panel)
+        rollBtn:SetSize(55, 20)
+        rollBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, btnY)
+
+        if not alreadyRolled then
+            -- Active: green "Roll!" button
+            local rollBg = ColorTexture(rollBtn, "BACKGROUND", 0.15, 0.35, 0.15, 0.8)
+            rollBg:SetAllPoints(rollBtn)
+            local rollTxt = rollBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            rollTxt:SetPoint("CENTER", rollBtn, "CENTER", 0, 0)
+            rollTxt:SetText("Roll!")
+            rollTxt:SetTextColor(0.5, 1.0, 0.5)
+            rollBtn:SetScript("OnEnter", function() rollBg:SetVertexColor(0.25, 0.45, 0.25, 0.8) end)
+            rollBtn:SetScript("OnLeave", function() rollBg:SetVertexColor(0.15, 0.35, 0.15, 0.8) end)
+            rollBtn:SetScript("OnClick", function() RandomRoll(1, 100) end)
+        else
+            -- Already rolled: greyed out, non-interactive
+            local rolledBg = ColorTexture(rollBtn, "BACKGROUND", 0.15, 0.15, 0.15, 0.6)
+            rolledBg:SetAllPoints(rollBtn)
+            local rolledTxt = rollBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            rolledTxt:SetPoint("CENTER", rollBtn, "CENTER", 0, 0)
+            rolledTxt:SetText("Rolled")
+            rolledTxt:SetTextColor(0.4, 0.4, 0.4)
+            rollBtn:EnableMouse(false)
+        end
+
+        rollBtn:Show()
+        rollY = btnY - 22
+    end
+
+    -- Roll list — shown during active rolling (top 3) and in history (all rolls).
+    -- Was previously gated on item.rolling, which meant done items showed no rolls.
+    if rollCount > 0 then
+        -- Sort by value desc, then name asc for tie-breaking
         local sortedRolls = {}
         for playerName, rollInfo in pairs(item.rolls) do
             table.insert(sortedRolls, { name = playerName, value = rollInfo.value })
@@ -1132,10 +1175,13 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
             return a.name < b.name
         end)
 
-        local maxInline = math.min(3, #sortedRolls)
+        -- Live roll: cap at 3 (avoids panel growing unbounded during 25-man rolling).
+        -- History (not rolling): show all rolls so the full outcome is visible.
+        local maxRows = item.rolling and math.min(3, #sortedRolls) or #sortedRolls
         local rollRowH = 16
-        for i = 1, maxInline do
+        for i = 1, maxRows do
             local entry = sortedRolls[i]
+            local isWinner = (entry.name == item.winner)
             local classFile = GetPlayerClass(entry.name)
             local classTex = CLASS_TCOORDS[classFile]
 
@@ -1146,6 +1192,15 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
                 elseif not classTex then
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LOOTY UI]|r class=" .. classFile .. " but NO coords")
                 end
+            end
+
+            -- Winner highlight background
+            if isWinner then
+                local winBg = ColorTexture(panel, "BACKGROUND",
+                    0.12, 0.60, 0.12, 0.25 * alpha)
+                winBg:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, rollY)
+                winBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, rollY)
+                winBg:SetHeight(rollRowH)
             end
 
             -- Class icon
@@ -1159,17 +1214,21 @@ local function BuildMasterItemPanel(content, item, itemIndex, yOffset, opts)
                 cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
             end
 
-            -- Roll icon (need/greed/etc - default to need since MasterLoot is simple)
+            -- Dice icon
             local rIcon = panel:CreateTexture(nil, "ARTWORK")
             rIcon:SetSize(14, 14)
             rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
             rIcon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
 
-            -- Player name + value
+            -- Player name + value: winner in green, others in yellow
             local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
-            pName:SetText(entry.name .. " (" .. entry.value .. ")")
-            pName:SetTextColor(1.0, 0.85, 0.2)
+            pName:SetText(entry.name .. " (" .. tostring(entry.value) .. ")")
+            if isWinner then
+                pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
+            else
+                pName:SetTextColor(1.0 * alpha, 0.85 * alpha, 0.2 * alpha)
+            end
 
             rollY = rollY - rollRowH - 1
         end
@@ -1205,10 +1264,10 @@ end
 
 -- ---- Master Loot timer update ----
 
-function UI:UpdateMasterLootTimer(itemIndex, remaining)
+function UI:UpdateMasterLootTimer(itemKey, remaining)
     if not LootyFrame or not LootyFrame.content then return end
     for _, child in ipairs({ LootyFrame.content:GetChildren() }) do
-        if child._mlItemIndex == itemIndex and child._mlTimerBar and child._mlTimerBg then
+        if child._mlItemIndex == itemKey and child._mlTimerBar and child._mlTimerBg then
             local duration = child._mlDuration or LootyMasterLoot.rollDuration
             local pct = remaining / duration
             child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
@@ -1327,19 +1386,57 @@ function UI:Refresh()
         frame.tabs.grouplot.text:SetText("Group: " .. totalGl)
 
     elseif currentTab == "master" then
-        local mlCount = LootyMasterLoot and LootyMasterLoot:GetActiveItemCount() or 0
-        if mlCount > 0 and LootyMasterLoot then
-            for i, item in ipairs(LootyMasterLoot.items) do
+        local isML   = LootyMasterLoot and LootyMasterLoot.isML
+        local role   = LootyMasterLoot and LootyMasterLoot.role
+        local items  = isML and LootyMasterLoot.items or (LootyMasterLoot and LootyMasterLoot.remoteItems or {})
+        local mlCount = 0
+        for _, item in pairs(items) do
+            if not item.isDone then mlCount = mlCount + 1 end
+        end
+
+        -- ---- Role badge ----
+        -- Shown whenever master loot is active.
+        -- Loot method label (always shown in ML mode)
+        if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+            local methodLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            methodLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            methodLabel:SetText("Loot: Master")
+            methodLabel:SetTextColor(0.7, 0.7, 0.7)
+            yOffset = yOffset - 16
+        end
+
+        -- Role label (MasterLooter = gold, Raider = blue)
+        if role == "MasterLooter" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: MasterLooter")
+            roleLabel:SetTextColor(1.0, 0.82, 0.0)
+            yOffset = yOffset - 18
+
+        elseif role == "Raider" then
+            local roleLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            roleLabel:SetPoint("TOPLEFT", content, "TOPLEFT", PANEL_PADDING, yOffset)
+            roleLabel:SetText("Role: Raider")
+            roleLabel:SetTextColor(0.4, 0.7, 1.0)
+            yOffset = yOffset - 18
+        end
+
+        if mlCount > 0 then
+            for _, item in pairs(items) do
                 if not item.isDone then
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset)
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
         end
 
-        -- Show done items with reduced opacity
+        -- Show done items with reduced opacity.
+        -- ML uses GetDoneItems() (self.items); Raider uses GetRemoteDoneItems() (remoteItems).
         if LootyMasterLoot then
-            local doneItems = LootyMasterLoot:GetDoneItems()
+            local doneItems = isML
+                and LootyMasterLoot:GetDoneItems()
+                or  LootyMasterLoot:GetRemoteDoneItems()
+
             if #doneItems > 0 then
                 local sepY = yOffset - 10
                 local sep = ColorTexture(content, "BORDER", 0.25, 0.25, 0.25, 0.4)
@@ -1348,7 +1445,7 @@ function UI:Refresh()
                 sep:SetHeight(1)
                 yOffset = sepY - 22
 
-                -- Clear Done button (at the TOP of done section)
+                -- Clear Done button — routes to the correct clear function by role
                 local clearBtn = CreateFrame("Button", nil, content)
                 clearBtn:SetSize(80, 20)
                 clearBtn:SetPoint("TOP", content, "TOP", 0, yOffset)
@@ -1361,7 +1458,11 @@ function UI:Refresh()
                 clearBtn:SetScript("OnEnter", function() clearBg:SetVertexColor(0.25, 0.25, 0.25, 0.8) end)
                 clearBtn:SetScript("OnLeave", function() clearBg:SetVertexColor(0.15, 0.15, 0.15, 0.8) end)
                 clearBtn:SetScript("OnClick", function()
-                    LootyMasterLoot:ClearDone()
+                    if isML then
+                        LootyMasterLoot:ClearDone()
+                    else
+                        LootyMasterLoot:ClearRemoteDone()
+                    end
                 end)
                 yOffset = yOffset - 24
 
@@ -1371,18 +1472,22 @@ function UI:Refresh()
                 doneLabel:SetTextColor(0.4, 0.4, 0.4)
                 yOffset = yOffset - 16
 
-                for i, item in ipairs(doneItems) do
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true })
+                for _, item in ipairs(doneItems) do
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isDone = true, isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
         end
 
-        if mlCount == 0 and (not LootyMasterLoot or #LootyMasterLoot.items == 0) then
+        if mlCount == 0 then
             local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             empty:SetPoint("TOP", content, "TOP", 0, -40)
-            if LootyMasterLoot and LootyMasterLoot.active then
-                empty:SetText("No items looted yet — open a corpse with loot")
+            if LootyMasterLoot and LootyMasterLoot.isMasterLootActive then
+                if role == "Raider" then
+                    empty:SetText("Waiting for MasterLooter to open a corpse...")
+                else
+                    empty:SetText("No items looted yet — open a corpse with loot")
+                end
             else
                 empty:SetText("Not in Master Loot mode")
             end
@@ -1451,8 +1556,10 @@ function UI:UpdateTimers()
         end
     end
 
-    -- MasterLoot timer (update when on Master tab — visible timer)
-    if currentTab == "master" and LootyMasterLoot and LootyMasterLoot.currentRoll then
+    -- MasterLoot timer (update when on Master tab — visible timer).
+    -- Gate on active, not currentRoll: currentRoll is nil on the Raider client
+    -- (only the ML sets it), so the Raider's timer would never update otherwise.
+    if currentTab == "master" and LootyMasterLoot and LootyMasterLoot.active then
         for _, child in ipairs({ content:GetChildren() }) do
             if child._mlItemIndex and child._mlTimerBar and child._mlRollStart then
                 local elapsed = GetTime() - child._mlRollStart
