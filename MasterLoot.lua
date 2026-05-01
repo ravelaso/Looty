@@ -48,16 +48,21 @@ MasterLoot.sendTimer    = nil  -- Timer frame for throttled sending
 
 -- Message Protocol (prefix: "LOOTY")
 -- Field separator: \001 (ASCII SOH) — cannot appear in item links or names.
--- ITEM\001index\001link\001texture\001quality\001name      → One per item, 0.1 s apart
--- ROLL_START\001index                                      → Roll started for item
--- ROLL_END\001index\001winnerName                          → Roll ended, winner announced
--- ITEM_DONE\001index                                       → Item marked as done
--- CLEAR_DONE\001idx1\001idx2\001...                        → ML cleared specific done items
--- CLEAR                                                    → All items cleared (ML mode off)
 --
--- IMPORTANT: item indices in all messages are the ORIGINAL indices from LOOT_OPENED.
--- ClearDone on the ML side MUST NOT compact self.items — it nils entries in-place
--- so that all subsequent index-keyed messages still match the Raider's remoteItems.
+-- Item identity key: "{itemID}:{slot}"  e.g. "18815:3"
+--   - itemID extracted from the item link (|Hitem:ITEMID:...|h)
+--   - slot is the loot slot index from GetLootSlotLink(i), stable for the session
+--   - Composite key handles duplicate drops of the same item (same itemID, different slot)
+--   - Both ML and Raiders key their item tables on this string — no positional indices
+--
+-- ITEM\001itemKey\001link\001texture\001quality\001name  → One per item, 0.1 s apart
+-- ROLL_START\001itemKey                                  → Roll started for item
+-- ROLL_END\001itemKey\001winnerName                      → Roll ended, winner announced
+-- ITEM_DONE\001itemKey                                   → Item loot session finalized
+-- CLEAR                                                  → All items cleared (ML mode off)
+--
+-- NOTE: ClearDone is a LOCAL UI operation on both ML and Raider — it does NOT send a
+-- protocol message. Each client manages its own Done/History view independently.
 
 -- ============================================================
 -- ---- Internal helpers: loot method and ML detection ----
@@ -199,19 +204,24 @@ end
 
 -- Field separator: ASCII \001 (SOH).
 -- Cannot appear in item links, texture paths, quality digits, or item names.
--- This avoids the pipe-escaping problem entirely — WoW item links contain many
--- literal | characters (|c color codes, |H hyperlinks, |h display text, |r reset)
--- that would collide with any pipe-based delimiter scheme.
 local SEP = "\001"
 
-function MasterLoot:SerializeItem(item, index)
-    -- Format: ITEM\001index\001link\001texture\001quality\001name
-    -- No escaping needed — SEP (\001) never appears in any of these fields.
+-- Build the stable identity key for an item: "{itemID}:{slot}"
+-- itemID is extracted from the WoW item link format: |Hitem:ITEMID:...|h
+-- slot is the loot window slot index (server-assigned, stable for the session).
+-- Two drops of the same item get the same itemID but different slots → unique keys.
+local function ExtractItemKey(link, slot)
+    local itemID = string.match(link or "", "item:(%d+)")
+    return (itemID or "0") .. ":" .. tostring(slot)
+end
+
+function MasterLoot:SerializeItem(item)
+    -- Format: ITEM\001itemKey\001link\001texture\001quality\001name
     local link    = item.link or ""
     local texture = item.texture or ""
     local quality = tostring(item.quality or 2)
     local name    = item.name or "Unknown"
-    return "ITEM" .. SEP .. index .. SEP .. link .. SEP .. texture .. SEP .. quality .. SEP .. name
+    return "ITEM" .. SEP .. item.itemKey .. SEP .. link .. SEP .. texture .. SEP .. quality .. SEP .. name
 end
 
 -- ============================================================
@@ -280,29 +290,28 @@ end
 -- ============================================================
 
 function MasterLoot:DeserializeItem(message)
-    -- Format: ITEM\001index\001link\001texture\001quality\001name
-    -- SEP is \001 — split cleanly with no pipe-escaping complications.
+    -- Format: ITEM\001itemKey\001link\001texture\001quality\001name
     if not string.find(message, "^ITEM" .. SEP) then return nil end
 
     local parts = {}
-    -- strsplit does not exist in all Lua environments; use gmatch with SEP
-    -- Note: string.gmatch pattern-escaping — \001 has no special meaning in
-    -- Lua patterns so it can be used directly as a literal character.
     for segment in string.gmatch(message, "[^" .. SEP .. "]+") do
         table.insert(parts, segment)
     end
-    -- parts[1] = "ITEM", parts[2] = index, parts[3] = link, parts[4] = texture,
-    -- parts[5] = quality, parts[6] = name
+    -- parts[1]="ITEM" parts[2]=itemKey parts[3]=link parts[4]=texture
+    -- parts[5]=quality parts[6]=name
     if #parts < 6 then return nil end
 
-    local idx = tonumber(parts[2])
+    local itemKey = parts[2]
+    -- Extract slot from itemKey ("{itemID}:{slot}") for local use
+    local slot = tonumber(string.match(itemKey, ":(%d+)$")) or 0
+
     return {
-        index     = idx,
+        itemKey   = itemKey,
         link      = parts[3],
         texture   = parts[4],
         quality   = tonumber(parts[5]) or 2,
         name      = parts[6],
-        slot      = idx or 0,
+        slot      = slot,
         quantity  = 1,
         rolls     = {},
         rerolls   = {},
@@ -328,65 +337,55 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
         end
     end
 
-    -- Dispatch by message type
+    -- All message types below use itemKey (string) as the shared identity key.
     if string.sub(message, 1, #itemPrefix) == itemPrefix then
         local item = self:DeserializeItem(message)
         if item then
-            self.remoteItems[item.index] = item
+            self.remoteItems[item.itemKey] = item
             if addon.db and addon.db.debug then
                 DEFAULT_CHAT_FRAME:AddMessage(
-                    "|cff00ff00[LOOTY ML]|r Raider: received item " .. item.name)
+                    "|cff00ff00[LOOTY ML]|r Raider: received item " .. item.name .. " key=" .. item.itemKey)
             end
         end
 
     elseif string.sub(message, 1, 11) == "ROLL_START" .. SEP then
-        local idx = tonumber(string.sub(message, 12))
-        if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].rolling    = true
-            self.remoteItems[idx].rollStart  = GetTime()
-            self.remoteItems[idx].rolls      = {}
-            self.remoteItems[idx].rerolls    = {}
-            self.currentRemoteRoll           = idx  -- track for Raider roll capture
+        local itemKey = string.sub(message, 12)
+        if itemKey ~= "" and self.remoteItems[itemKey] then
+            self.remoteItems[itemKey].rolling    = true
+            self.remoteItems[itemKey].rollStart  = GetTime()
+            self.remoteItems[itemKey].rolls      = {}
+            self.remoteItems[itemKey].rerolls    = {}
+            self.currentRemoteRoll               = itemKey
         end
 
     elseif string.sub(message, 1, 9) == "ROLL_END" .. SEP then
         local rest   = string.sub(message, 10)
         local sepPos = string.find(rest, SEP, 1, true)
-        local idx, winner
+        local itemKey, winner
         if sepPos then
-            idx    = tonumber(string.sub(rest, 1, sepPos - 1))
-            winner = string.sub(rest, sepPos + 1)
+            itemKey = string.sub(rest, 1, sepPos - 1)
+            winner  = string.sub(rest, sepPos + 1)
         else
-            idx = tonumber(rest)
+            itemKey = rest
         end
-        if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].rolling   = false
-            self.remoteItems[idx].rollStart = nil
-            self.remoteItems[idx].winner    = (winner and winner ~= "none") and winner or nil
+        if itemKey ~= "" and self.remoteItems[itemKey] then
+            self.remoteItems[itemKey].rolling   = false
+            self.remoteItems[itemKey].rollStart = nil
+            self.remoteItems[itemKey].winner    = (winner and winner ~= "none") and winner or nil
         end
-        self.currentRemoteRoll = nil  -- roll over, stop capturing
+        self.currentRemoteRoll = nil
 
     elseif string.sub(message, 1, 10) == "ITEM_DONE" .. SEP then
-        local idx = tonumber(string.sub(message, 11))
-        if idx and self.remoteItems[idx] then
-            self.remoteItems[idx].isDone = true
-        end
-
-    elseif string.sub(message, 1, 11) == "CLEAR_DONE" .. SEP then
-        -- ML cleared specific done items by index. Remove only those indices
-        -- so that active items and their indices are preserved intact.
-        local rest = string.sub(message, 12)
-        for segment in string.gmatch(rest, "[^" .. SEP .. "]+") do
-            local idx = tonumber(segment)
-            if idx then
-                self.remoteItems[idx] = nil
-            end
+        local itemKey = string.sub(message, 11)
+        if itemKey ~= "" and self.remoteItems[itemKey] then
+            self.remoteItems[itemKey].isDone = true
         end
 
     elseif message == "CLEAR" then
-        self.remoteItems = {}
-        self.remoteMode  = false
-        self.remoteML    = nil
+        self.remoteItems      = {}
+        self.remoteMode       = false
+        self.remoteML         = nil
+        self.currentRemoteRoll = nil
     end
 
     if LootyUI and LootyUI.Refresh then
@@ -425,7 +424,9 @@ function MasterLoot:OnLootOpened()
         -- WOTLK 3.3.5 has no GetLootSlotType; filter money by absence of link
         local link = GetLootSlotLink(i)
         if name and link then
-            table.insert(self.items, {
+            local itemKey = ExtractItemKey(link, i)
+            self.items[itemKey] = {
+                itemKey   = itemKey,
                 slot      = i,
                 name      = name,
                 link      = link,
@@ -438,15 +439,13 @@ function MasterLoot:OnLootOpened()
                 rollStart = nil,
                 isDone    = false,
                 winner    = nil,
-            })
+            }
         end
     end
 
     -- Broadcast items to Raiders (throttled, 0.1 s apart)
-    -- self.items is a sparse table keyed by slot index — use pairs, not ipairs.
-    for index, item in pairs(self.items) do
-        local msg = self:SerializeItem(item, index)
-        self:SendThrottledMessage(msg)
+    for _, item in pairs(self.items) do
+        self:SendThrottledMessage(self:SerializeItem(item))
     end
 
     if addon.db and addon.db.debug then
@@ -472,8 +471,8 @@ end
 -- ---- Roll management (ML side) ----
 -- ============================================================
 
-function MasterLoot:StartRoll(itemIndex)
-    local item = self.items[itemIndex]
+function MasterLoot:StartRoll(itemKey)
+    local item = self.items[itemKey]
     if not item or item.isDone or item.rolling then return end
 
     -- Cancel any previous active roll
@@ -486,23 +485,23 @@ function MasterLoot:StartRoll(itemIndex)
     item.rolls    = {}
     item.rerolls  = {}
     item.winner   = nil
-    self.currentRoll = itemIndex
+    self.currentRoll = itemKey
 
     local msg = ">> Rolling for: " .. (item.link or item.name) ..
                 " — /roll now! (" .. self.rollDuration .. "s)"
     SendChatMessage(msg, "RAID_WARNING")
     addon:Print(msg)
 
-        self:SendThrottledMessage("ROLL_START" .. SEP .. itemIndex)
-    self.rollTimer = self:CreateTimer(itemIndex)
+    self:SendThrottledMessage("ROLL_START" .. SEP .. itemKey)
+    self.rollTimer = self:CreateTimer(itemKey)
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
 end
 
-function MasterLoot:EndRoll(itemIndex)
-    local item = self.items[itemIndex]
+function MasterLoot:EndRoll(itemKey)
+    local item = self.items[itemKey]
     if not item or not item.rolling then return end
 
     item.rolling  = false
@@ -522,7 +521,7 @@ function MasterLoot:EndRoll(itemIndex)
         addon:Print("No rolls for " .. (item.link or item.name))
     end
 
-    self:SendThrottledMessage("ROLL_END" .. SEP .. itemIndex .. SEP .. (winner or "none"))
+    self:SendThrottledMessage("ROLL_END" .. SEP .. itemKey .. SEP .. (winner or "none"))
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
@@ -534,7 +533,7 @@ function MasterLoot:CancelRoll()
     local item = self.items[self.currentRoll]
     if not item then return end
 
-    item.rolling  = false
+    item.rolling   = false
     item.rollStart = nil
     self.currentRoll = nil
 
@@ -552,23 +551,23 @@ end
 -- ---- Timer ----
 -- ============================================================
 
-function MasterLoot:CreateTimer(itemIndex)
+function MasterLoot:CreateTimer(itemKey)
     local timer = CreateFrame("Frame")
-    timer.itemIndex = itemIndex
-    timer.elapsed   = 0
+    timer.itemKey = itemKey
+    timer.elapsed = 0
     timer:Show()
     timer:SetScript("OnUpdate", function(self, elapsed)
         self.elapsed = self.elapsed + elapsed
         if self.elapsed >= 1 then
             self.elapsed = 0
-            local item = MasterLoot.items[self.itemIndex]
+            local item = MasterLoot.items[self.itemKey]
             if item and item.rolling then
                 local remaining = MasterLoot.rollDuration - (GetTime() - item.rollStart)
                 if remaining <= 0 then
-                    MasterLoot:EndRoll(self.itemIndex)
+                    MasterLoot:EndRoll(self.itemKey)
                 else
                     if LootyUI and LootyUI.UpdateMasterLootTimer then
-                        LootyUI:UpdateMasterLootTimer(self.itemIndex, remaining)
+                        LootyUI:UpdateMasterLootTimer(self.itemKey, remaining)
                     end
                 end
             else
@@ -648,12 +647,12 @@ end
 -- ---- Item state helpers ----
 -- ============================================================
 
-function MasterLoot:ToggleDone(itemIndex)
-    local item = self.items[itemIndex]
+function MasterLoot:ToggleDone(itemKey)
+    local item = self.items[itemKey]
     if not item then return end
 
     item.isDone = not item.isDone
-    self:SendThrottledMessage("ITEM_DONE" .. SEP .. itemIndex)
+    self:SendThrottledMessage("ITEM_DONE" .. SEP .. itemKey)
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
@@ -661,24 +660,14 @@ function MasterLoot:ToggleDone(itemIndex)
 end
 
 function MasterLoot:ClearDone()
-    -- Collect indices BEFORE modifying, so we can broadcast them to Raiders.
-    -- MUST nil in-place rather than rebuilding the array — rebuilding would
-    -- shift indices and desync all subsequent ROLL_START/ROLL_END/ITEM_DONE
-    -- messages that Raiders key against original LOOT_OPENED indices.
-    local clearedIndices = {}
-    for idx, item in pairs(self.items) do
+    -- Local UI operation only — no protocol message sent.
+    -- Each client (ML and Raiders) manages their own Done/History view independently.
+    -- itemKey-based identity means there is no index drift risk to worry about.
+    for key, item in pairs(self.items) do
         if item.isDone then
-            clearedIndices[#clearedIndices + 1] = idx
-            self.items[idx] = nil
+            self.items[key] = nil
         end
     end
-
-    -- Notify Raiders to remove the same indices
-    if #clearedIndices > 0 then
-        local msg = "CLEAR_DONE" .. SEP .. table.concat(clearedIndices, SEP)
-        self:SendThrottledMessage(msg)
-    end
-
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
     end
@@ -694,43 +683,44 @@ function MasterLoot:GetPendingItems()
     return items
 end
 
+-- Sort helper: compare two itemKeys by their slot number descending.
+-- itemKey format is "{itemID}:{slot}" so we extract the slot suffix.
+local function itemKeySlotDesc(a, b)
+    local slotA = tonumber(string.match(a, ":(%d+)$")) or 0
+    local slotB = tonumber(string.match(b, ":(%d+)$")) or 0
+    return slotA > slotB
+end
+
 function MasterLoot:GetDoneItems()
-    -- self.items is sparse after ClearDone — collect indices, sort descending.
     local items = {}
-    local indices = {}
-    for idx in pairs(self.items) do
-        table.insert(indices, idx)
-    end
-    table.sort(indices, function(a, b) return a > b end)
-    for _, idx in ipairs(indices) do
-        if self.items[idx].isDone then
-            table.insert(items, self.items[idx])
+    local keys  = {}
+    for key in pairs(self.items) do table.insert(keys, key) end
+    table.sort(keys, itemKeySlotDesc)
+    for _, key in ipairs(keys) do
+        if self.items[key].isDone then
+            table.insert(items, self.items[key])
         end
     end
     return items
 end
 
--- Raider equivalents: operate on remoteItems (sparse table, iterate by index)
 function MasterLoot:GetRemoteDoneItems()
     local items = {}
-    -- Collect indices first so we can sort them descending (most recent last = first in list)
-    local indices = {}
-    for idx in pairs(self.remoteItems) do
-        table.insert(indices, idx)
-    end
-    table.sort(indices, function(a, b) return a > b end)
-    for _, idx in ipairs(indices) do
-        if self.remoteItems[idx].isDone then
-            table.insert(items, self.remoteItems[idx])
+    local keys  = {}
+    for key in pairs(self.remoteItems) do table.insert(keys, key) end
+    table.sort(keys, itemKeySlotDesc)
+    for _, key in ipairs(keys) do
+        if self.remoteItems[key].isDone then
+            table.insert(items, self.remoteItems[key])
         end
     end
     return items
 end
 
 function MasterLoot:ClearRemoteDone()
-    for idx in pairs(self.remoteItems) do
-        if self.remoteItems[idx].isDone then
-            self.remoteItems[idx] = nil
+    for key in pairs(self.remoteItems) do
+        if self.remoteItems[key].isDone then
+            self.remoteItems[key] = nil
         end
     end
     if LootyUI and LootyUI.Refresh then
@@ -756,7 +746,8 @@ function MasterLoot:InjectTestRolls()
     self.role   = "MasterLooter"
     self.isML   = true
     self.items  = {
-        {
+        ["18815:1"] = {
+            itemKey   = "18815:1",
             slot      = 1,
             name      = "Spinal Crusher",
             link      = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
@@ -778,10 +769,11 @@ function MasterLoot:InjectTestRolls()
                 MageBob   = { value = 33, time = GetTime() },
             },
             rerolls = {
-                DPSKing = { value = 99, time = GetTime() },  -- cheating attempt
+                DPSKing = { value = 99, time = GetTime() },
             },
         },
-        {
+        ["23243:2"] = {
+            itemKey   = "23243:2",
             slot      = 2,
             name      = "Staff of the Shadowflame",
             link      = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
@@ -795,7 +787,8 @@ function MasterLoot:InjectTestRolls()
             rolls     = {},
             rerolls   = {},
         },
-        {
+        ["22734:3"] = {
+            itemKey   = "22734:3",
             slot      = 3,
             name      = "Ring of the Eternal",
             link      = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
@@ -814,7 +807,7 @@ function MasterLoot:InjectTestRolls()
             rerolls = {},
         },
     }
-    self.currentRoll = 1
+    self.currentRoll = "18815:1"
 
     addon:Print("Master Loot test data injected — 2 pending, 1 done. Role: MasterLooter")
 
@@ -823,15 +816,16 @@ function MasterLoot:InjectTestRolls()
 end
 
 function MasterLoot:InjectRemoteTest()
-    self.isMasterLootActive = true
-    self.active     = true
-    self.role       = "Raider"
-    self.isML       = false
-    self.remoteMode = true
-    self.remoteML   = "TestMaster"
+    self.isMasterLootActive  = true
+    self.active              = true
+    self.role                = "Raider"
+    self.isML                = false
+    self.remoteMode          = true
+    self.remoteML            = "TestMaster"
+    self.currentRemoteRoll   = "18815:1"
     self.remoteItems = {
-        [1] = {
-            index     = 1,
+        ["18815:1"] = {
+            itemKey   = "18815:1",
             slot      = 1,
             name      = "Spinal Crusher",
             link      = "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
@@ -856,8 +850,8 @@ function MasterLoot:InjectRemoteTest()
                 DPSKing = { value = 99, time = GetTime() },
             },
         },
-        [2] = {
-            index     = 2,
+        ["23243:2"] = {
+            itemKey   = "23243:2",
             slot      = 2,
             name      = "Staff of the Shadowflame",
             link      = "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
@@ -871,8 +865,8 @@ function MasterLoot:InjectRemoteTest()
             rolls     = {},
             rerolls   = {},
         },
-        [3] = {
-            index     = 3,
+        ["22734:3"] = {
+            itemKey   = "22734:3",
             slot      = 3,
             name      = "Ring of the Eternal",
             link      = "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",

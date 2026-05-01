@@ -1264,10 +1264,10 @@ end
 
 -- ---- Master Loot timer update ----
 
-function UI:UpdateMasterLootTimer(itemIndex, remaining)
+function UI:UpdateMasterLootTimer(itemKey, remaining)
     if not LootyFrame or not LootyFrame.content then return end
     for _, child in ipairs({ LootyFrame.content:GetChildren() }) do
-        if child._mlItemIndex == itemIndex and child._mlTimerBar and child._mlTimerBg then
+        if child._mlItemIndex == itemKey and child._mlTimerBar and child._mlTimerBg then
             local duration = child._mlDuration or LootyMasterLoot.rollDuration
             local pct = remaining / duration
             child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
@@ -1422,9 +1422,9 @@ function UI:Refresh()
         end
 
         if mlCount > 0 then
-            for i, item in pairs(items) do
+            for _, item in pairs(items) do
                 if not item.isDone then
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isML = isML })
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
@@ -1472,8 +1472,8 @@ function UI:Refresh()
                 doneLabel:SetTextColor(0.4, 0.4, 0.4)
                 yOffset = yOffset - 16
 
-                for i, item in ipairs(doneItems) do
-                    local panel, panelH = BuildMasterItemPanel(content, item, i, yOffset, { isDone = true, isML = isML })
+                for _, item in ipairs(doneItems) do
+                    local panel, panelH = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isDone = true, isML = isML })
                     yOffset = yOffset - panelH - 4
                 end
             end
