@@ -48,11 +48,16 @@ MasterLoot.sendTimer    = nil  -- Timer frame for throttled sending
 
 -- Message Protocol (prefix: "LOOTY")
 -- Field separator: \001 (ASCII SOH) — cannot appear in item links or names.
--- ITEM\001index\001link\001texture\001quality\001name  → One per item, 0.5 s apart
--- ROLL_START\001index                                  → Roll started for item
--- ROLL_END\001index\001winnerName                      → Roll ended, winner announced
--- ITEM_DONE\001index                                   → Item marked as done
--- CLEAR                                                → All items cleared (ML mode off)
+-- ITEM\001index\001link\001texture\001quality\001name      → One per item, 0.1 s apart
+-- ROLL_START\001index                                      → Roll started for item
+-- ROLL_END\001index\001winnerName                          → Roll ended, winner announced
+-- ITEM_DONE\001index                                       → Item marked as done
+-- CLEAR_DONE\001idx1\001idx2\001...                        → ML cleared specific done items
+-- CLEAR                                                    → All items cleared (ML mode off)
+--
+-- IMPORTANT: item indices in all messages are the ORIGINAL indices from LOOT_OPENED.
+-- ClearDone on the ML side MUST NOT compact self.items — it nils entries in-place
+-- so that all subsequent index-keyed messages still match the Raider's remoteItems.
 
 -- ============================================================
 -- ---- Internal helpers: loot method and ML detection ----
@@ -367,6 +372,17 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
             self.remoteItems[idx].isDone = true
         end
 
+    elseif string.sub(message, 1, 11) == "CLEAR_DONE" .. SEP then
+        -- ML cleared specific done items by index. Remove only those indices
+        -- so that active items and their indices are preserved intact.
+        local rest = string.sub(message, 12)
+        for segment in string.gmatch(rest, "[^" .. SEP .. "]+") do
+            local idx = tonumber(segment)
+            if idx then
+                self.remoteItems[idx] = nil
+            end
+        end
+
     elseif message == "CLEAR" then
         self.remoteItems = {}
         self.remoteMode  = false
@@ -426,8 +442,9 @@ function MasterLoot:OnLootOpened()
         end
     end
 
-    -- Broadcast items to Raiders (throttled, 0.5 s apart)
-    for index, item in ipairs(self.items) do
+    -- Broadcast items to Raiders (throttled, 0.1 s apart)
+    -- self.items is a sparse table keyed by slot index — use pairs, not ipairs.
+    for index, item in pairs(self.items) do
         local msg = self:SerializeItem(item, index)
         self:SendThrottledMessage(msg)
     end
@@ -644,13 +661,23 @@ function MasterLoot:ToggleDone(itemIndex)
 end
 
 function MasterLoot:ClearDone()
-    local newItems = {}
-    for _, item in ipairs(self.items) do
-        if not item.isDone then
-            table.insert(newItems, item)
+    -- Collect indices BEFORE modifying, so we can broadcast them to Raiders.
+    -- MUST nil in-place rather than rebuilding the array — rebuilding would
+    -- shift indices and desync all subsequent ROLL_START/ROLL_END/ITEM_DONE
+    -- messages that Raiders key against original LOOT_OPENED indices.
+    local clearedIndices = {}
+    for idx, item in pairs(self.items) do
+        if item.isDone then
+            clearedIndices[#clearedIndices + 1] = idx
+            self.items[idx] = nil
         end
     end
-    self.items = newItems
+
+    -- Notify Raiders to remove the same indices
+    if #clearedIndices > 0 then
+        local msg = "CLEAR_DONE" .. SEP .. table.concat(clearedIndices, SEP)
+        self:SendThrottledMessage(msg)
+    end
 
     if LootyUI and LootyUI.Refresh then
         LootyUI:Refresh()
@@ -659,7 +686,7 @@ end
 
 function MasterLoot:GetPendingItems()
     local items = {}
-    for _, item in ipairs(self.items) do
+    for _, item in pairs(self.items) do
         if not item.isDone then
             table.insert(items, item)
         end
@@ -668,10 +695,16 @@ function MasterLoot:GetPendingItems()
 end
 
 function MasterLoot:GetDoneItems()
+    -- self.items is sparse after ClearDone — collect indices, sort descending.
     local items = {}
-    for i = #self.items, 1, -1 do
-        if self.items[i].isDone then
-            table.insert(items, self.items[i])
+    local indices = {}
+    for idx in pairs(self.items) do
+        table.insert(indices, idx)
+    end
+    table.sort(indices, function(a, b) return a > b end)
+    for _, idx in ipairs(indices) do
+        if self.items[idx].isDone then
+            table.insert(items, self.items[idx])
         end
     end
     return items
@@ -707,7 +740,7 @@ end
 
 function MasterLoot:GetActiveItemCount()
     local count = 0
-    for _, item in ipairs(self.items) do
+    for _, item in pairs(self.items) do
         if not item.isDone then count = count + 1 end
     end
     return count
