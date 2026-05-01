@@ -8,8 +8,6 @@
 -- ============================================================
 
 LOOTY_TAB_BAR_HEIGHT  = 24
-LOOTY_MIN_WIDTH       = 350
-LOOTY_MIN_HEIGHT      = 150
 LOOTY_DEFAULT_WIDTH   = 400
 LOOTY_DEFAULT_HEIGHT  = 280
 LOOTY_ICON_SIZE       = 36
@@ -146,6 +144,87 @@ function LootyApplyClassIcon(tex, playerName)
 end
 
 -- ============================================================
+-- ---- Layout cursors ----
+-- ============================================================
+
+-- Vertical layout cursor — stacks children top-to-bottom inside a parent frame.
+--
+-- parent:  the frame being laid out (used to auto-read width)
+-- startY:  the Y position to begin from (negative = below top edge, WoW convention)
+-- gap:     default pixel gap inserted after every Advance (default 0)
+-- width:   override the available width (default: parent:GetWidth())
+--
+-- c:Advance(h [, gap])
+--   Moves the cursor down by h pixels + gap.
+--   Returns the Y position BEFORE advancing, so renderers can anchor at the
+--   correct spot and still return a height for the caller.
+--   Passing h == 0 is a no-op and returns current y unchanged.
+--
+-- c:Consumed()
+--   Returns total pixels consumed from startY to current y.
+--   Use this as the single source of truth for panel height calculations.
+--
+function LootyVLayout(parent, startY, gap, width)
+    local c = {
+        parent  = parent,
+        y       = startY,
+        gap     = gap or 0,
+        width   = width or (parent and parent:GetWidth()) or 0,
+        _start  = startY,
+    }
+
+    function c:Advance(h, customGap)
+        if h == 0 then return self.y end
+        local before = self.y
+        self.y = self.y - h - (customGap ~= nil and customGap or self.gap)
+        return before
+    end
+
+    function c:Consumed()
+        return self._start - self.y
+    end
+
+    return c
+end
+
+-- Horizontal layout cursor — places children left-to-right inside a parent frame.
+--
+-- gap: default pixel gap between items (default 4)
+--
+-- c:Place(widget, parent, startX, atY)
+--   Anchors widget relative to parent.
+--   First widget: anchored TOPLEFT at (startX, atY).
+--   Subsequent widgets: anchored LEFT of previous widget's RIGHT + gap.
+--
+-- c:Reset()
+--   Clears chain state so the next Place starts fresh.
+--
+-- c.width
+--   Running total of pixels consumed horizontally (widget widths + gaps).
+--
+function LootyHLayout(gap)
+    local c = { gap = gap or 4, _prev = nil, width = 0 }
+
+    function c:Place(widget, parent, startX, atY)
+        if not self._prev then
+            widget:SetPoint("TOPLEFT", parent, "TOPLEFT", startX, atY)
+        else
+            widget:SetPoint("LEFT", self._prev, "RIGHT", self.gap, 0)
+            self.width = self.width + self.gap
+        end
+        self.width = self.width + widget:GetWidth()
+        self._prev = widget
+    end
+
+    function c:Reset()
+        self._prev = nil
+        self.width = 0
+    end
+
+    return c
+end
+
+-- ============================================================
 -- ---- Widget factory functions ----
 -- ============================================================
 
@@ -189,16 +268,21 @@ function LootyMakeSeparator(parent, yOffset, margin)
     return 1
 end
 
--- Simple text label anchored TOPLEFT.
--- Returns height consumed.
+-- Simple text label anchored TOPLEFT with a right bound so it wraps correctly.
+-- Both anchors (TOPLEFT + TOPRIGHT) constrain the width, enabling word wrap.
+-- GetHeight() is reliable only after SetText with a width constraint in place.
+-- Returns: fontstring, height consumed (actual rendered height, min 16).
 function LootyMakeLabel(parent, text, r, g, b, yOffset, xOffset, font)
     xOffset = xOffset or LOOTY_PANEL_PADDING
     font    = font or "GameFontNormalSmall"
     local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    fs:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, yOffset)
+    fs:SetPoint("TOPLEFT",  parent, "TOPLEFT",  xOffset,  yOffset)
+    fs:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -xOffset, yOffset)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(true)
     fs:SetText(text)
     fs:SetTextColor(r, g, b)
-    return fs, 16
+    return fs, math.max(16, fs:GetHeight())
 end
 
 -- A styled button with a solid colored background, hover highlight, and label.

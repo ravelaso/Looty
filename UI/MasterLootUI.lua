@@ -26,7 +26,11 @@ end
 -- ---- Sub-renderers (each returns height consumed) ----
 -- ============================================================
 
-local function RenderStatusLine(panel, item, rollY, alpha)
+-- Button color palettes reused across action states
+local BTN_GREEN = { { 0.15, 0.35, 0.15 }, { 0.25, 0.45, 0.25 }, { 0.5, 1.0, 0.5 } }
+local BTN_RED   = { { 0.25, 0.15, 0.15 }, { 0.35, 0.25, 0.25 }, { 1.0, 0.5, 0.5 } }
+
+local function RenderStatusLine(panel, layout, item, alpha)
     local rollCount   = item:RollCount()
     local rerollCount = item:RerollCount()
     local statusColor, statusText
@@ -50,102 +54,106 @@ local function RenderStatusLine(panel, item, rollY, alpha)
     end
 
     local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    fs:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, rollY)
+    fs:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
+    fs:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(true)
     fs:SetText(statusText)
     fs:SetTextColor(statusColor[1] * alpha, statusColor[2] * alpha, statusColor[3] * alpha)
-    return 16
+    layout:Advance(math.max(16, fs:GetHeight()))
 end
 
-local function RenderTimerBar(panel, item, rollY)
-    if not item:IsRolling() or not item.rollStart then return 0 end
+local function RenderTimerBar(panel, layout, item)
+    if not item:IsRolling() or not item.rollStart then return end
     local barH = 3
 
     local bg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
     bg:SetHeight(barH)
-    bg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  rollY)
-    bg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, rollY)
+    bg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
+    bg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
 
     local bar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
     bar:SetHeight(barH)
-    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, rollY)
+    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
 
     local remaining = LootyMasterLoot.rollDuration - (GetTime() - item.rollStart)
     remaining = math.max(0, remaining)
     local txt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    txt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, rollY - 2)
+    txt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
     txt:SetJustifyH("RIGHT")
     txt:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
 
     -- Store refs for live updates
-    panel._mlItemKey  = item.itemKey
+    panel._mlItemKey   = item.itemKey
     panel._mlRollStart = item.rollStart
     panel._mlDuration  = LootyMasterLoot.rollDuration
     panel._mlTimerBg   = bg
     panel._mlTimerBar  = bar
     panel._mlTimerText = txt
 
-    return barH + 4
+    layout:Advance(barH + 4)
 end
 
-local function RenderActionButtons(panel, item, rollY, action)
-    if not action then return 0 end
-    local btnY = rollY - 4
+local function RenderActionButtons(panel, layout, item, action)
+    if not action then return end
+
+    local BTN_H   = 20
+    local TOP_GAP = 4
+    local BOT_GAP = 4
+    local row     = LootyHLayout(4)
+    local atY     = layout.y - TOP_GAP
 
     if action == "ml_idle" then
-        local startBtn = LootyMakeButton(panel, "Start Roll", 70, 20,
-            { 0.15, 0.35, 0.15 }, { 0.25, 0.45, 0.25 }, { 0.5, 1.0, 0.5 },
+        local startBtn = LootyMakeButton(panel, "Start Roll", 70, BTN_H,
+            BTN_GREEN[1], BTN_GREEN[2], BTN_GREEN[3],
             function() LootyMasterLoot:StartRoll(item.itemKey) end)
-        startBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, btnY)
-        startBtn:Show()
-
-        local doneBtn = LootyMakeButton(panel, "Done", 55, 20,
-            { 0.25, 0.15, 0.15 }, { 0.35, 0.25, 0.25 }, { 1.0, 0.5, 0.5 },
+        local doneBtn = LootyMakeButton(panel, "Done", 55, BTN_H,
+            BTN_RED[1], BTN_RED[2], BTN_RED[3],
             function() LootyMasterLoot:ToggleDone(item.itemKey) end)
-        doneBtn:SetPoint("LEFT", startBtn, "RIGHT", 4, 0)
-        doneBtn:Show()
-
-        return 4 + 22  -- btnY margin + button height + bottom gap
+        row:Place(startBtn, panel, LOOTY_PANEL_PADDING, atY)
+        row:Place(doneBtn,  panel, LOOTY_PANEL_PADDING, atY)
+        startBtn:Show(); doneBtn:Show()
 
     elseif action == "ml_rolling" then
-        local endBtn = LootyMakeButton(panel, "End Roll", 65, 20,
-            { 0.25, 0.15, 0.15 }, { 0.35, 0.25, 0.25 }, { 1.0, 0.5, 0.5 },
+        local endBtn  = LootyMakeButton(panel, "End Roll", 65, BTN_H,
+            BTN_RED[1], BTN_RED[2], BTN_RED[3],
             function() LootyMasterLoot:EndRoll(item.itemKey) end)
-        endBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, btnY)
-        endBtn:Show()
-        return 4 + 24
+        local rollBtn = LootyMakeButton(panel, "Roll!", 55, BTN_H,
+            BTN_GREEN[1], BTN_GREEN[2], BTN_GREEN[3],
+            function() RandomRoll(1, 100) end)
+        row:Place(endBtn,  panel, LOOTY_PANEL_PADDING, atY)
+        row:Place(rollBtn, panel, LOOTY_PANEL_PADDING, atY)
+        endBtn:Show(); rollBtn:Show()
 
     elseif action == "raider_roll" then
-        local rollBtn = LootyMakeButton(panel, "Roll!", 55, 20,
-            { 0.15, 0.35, 0.15 }, { 0.25, 0.45, 0.25 }, { 0.5, 1.0, 0.5 },
+        local rollBtn = LootyMakeButton(panel, "Roll!", 55, BTN_H,
+            BTN_GREEN[1], BTN_GREEN[2], BTN_GREEN[3],
             function() RandomRoll(1, 100) end)
-        rollBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, btnY)
+        row:Place(rollBtn, panel, LOOTY_PANEL_PADDING, atY)
         rollBtn:Show()
-        return 4 + 22
 
     elseif action == "raider_rolled" then
-        local greyBtn = LootyMakeDisabledButton(panel, "Rolled", 55, 20)
-        greyBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, btnY)
+        local greyBtn = LootyMakeDisabledButton(panel, "Rolled", 55, BTN_H)
+        row:Place(greyBtn, panel, LOOTY_PANEL_PADDING, atY)
         greyBtn:Show()
-        return 4 + 22
     end
 
-    return 0
+    layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
 end
 
-local function RenderRollList(panel, item, rollY, alpha)
+local function RenderRollList(panel, layout, item, alpha)
     local rollCount = item:RollCount()
-    if rollCount == 0 then return 0 end
+    if rollCount == 0 then return end
 
     local sortedRolls = item:GetSortedRolls()
     -- Live: cap at 3; history: show all
     local maxRows = item:IsRolling() and math.min(3, #sortedRolls) or #sortedRolls
     local rowH    = 16
-    local consumed = 0
 
     for i = 1, maxRows do
-        local entry  = sortedRolls[i]
-        local isWin  = (entry.name == item.winner)
-        local y      = rollY - consumed
+        local entry = sortedRolls[i]
+        local isWin = (entry.name == item.winner)
+        local y     = layout.y
 
         -- Winner highlight
         if isWin then
@@ -175,25 +183,23 @@ local function RenderRollList(panel, item, rollY, alpha)
             pName:SetTextColor(1.0 * alpha, 0.85 * alpha, 0.2 * alpha)
         end
 
-        consumed = consumed + rowH + 1
+        layout:Advance(rowH + 1)
     end
-
-    return consumed
 end
 
-local function RenderRerollWarning(panel, item, rollY, alpha)
-    if item:RerollCount() == 0 then return 0 end
+local function RenderRerollWarning(panel, layout, item, alpha)
+    if item:RerollCount() == 0 then return end
     local names = {}
     for playerName, info in pairs(item.rerolls) do
         table.insert(names, playerName .. "(" .. (info.value or "?") .. ")")
     end
     local warnTxt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    warnTxt:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, rollY)
+    warnTxt:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
     warnTxt:SetPoint("RIGHT",   panel, "RIGHT",  -LOOTY_PANEL_PADDING, 0)
     warnTxt:SetJustifyH("LEFT")
     warnTxt:SetText("Re-rolls: " .. table.concat(names, ", "))
     warnTxt:SetTextColor(1.0 * alpha, 0.4 * alpha, 0.2 * alpha)
-    return 16
+    layout:Advance(16)
 end
 
 -- ============================================================
@@ -210,33 +216,24 @@ function BuildMasterItemPanel(content, item, itemKey, yOffset, opts)
     local alpha  = isDone and 0.5 or 1.0
     local iconH  = LOOTY_ICON_SIZE - 4
 
-    local panel = LootyMakePanel(content, isDone and 0.2 or 0.6)
+    local panel  = LootyMakePanel(content, isDone and 0.2 or 0.6)
     panel:SetWidth(content:GetWidth())
 
     -- Item header (icon, quality border, name, tooltip)
-    local rollY = LootyMakeItemHeader(panel, item, iconH, alpha)
+    -- LootyMakeItemHeader returns the y cursor start (below the icon row)
+    local layout = LootyVLayout(panel, LootyMakeItemHeader(panel, item, iconH, alpha), 0)
 
-    -- Status line
-    rollY = rollY - RenderStatusLine(panel, item, rollY, alpha)
+    -- Rows — each renderer advances the cursor by what it actually consumed
+    RenderStatusLine(panel, layout, item, alpha)
+    RenderTimerBar(panel, layout, item)
+    RenderActionButtons(panel, layout, item, GetItemAction(item, isML))
+    RenderRollList(panel, layout, item, alpha)
+    RenderRerollWarning(panel, layout, item, alpha)
 
-    -- Timer bar (when rolling)
-    rollY = rollY - RenderTimerBar(panel, item, rollY)
-
-    -- Action buttons
-    local action  = GetItemAction(item, isML)
-    rollY = rollY - RenderActionButtons(panel, item, rollY, action)
-
-    -- Roll list
-    rollY = rollY - RenderRollList(panel, item, rollY, alpha)
-
-    -- Reroll warning
-    rollY = rollY - RenderRerollWarning(panel, item, rollY, alpha)
-
-    -- Calculate total height
-    local totalH = LOOTY_PANEL_PADDING * 2 - rollY
-    if totalH < iconH + LOOTY_PANEL_PADDING * 2 + 20 then
-        totalH = iconH + LOOTY_PANEL_PADDING * 2 + 20
-    end
+    -- Total height = distance from panel top (y=0) to cursor end + bottom padding.
+    -- layout.y is negative (WoW convention), so -layout.y gives the full depth.
+    -- Top padding is already embedded in LootyMakeItemHeader's starting Y.
+    local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)
     panel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
     panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
@@ -310,9 +307,15 @@ function RefreshMasterLootTab(content, frame)
     end
 
     -- ---- Empty state ----
-    if mlCount == 0 then
-        local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        empty:SetPoint("TOP", content, "TOP", 0, -40)
+    -- Only shown when there are truly no items at all (no active AND no done).
+    local doneCount = session and #session:GetDoneItems() or 0
+    if mlCount == 0 and doneCount == 0 then
+        local emptyY = yOffset - 16
+        local empty  = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        empty:SetPoint("TOPLEFT",  content, "TOPLEFT",  LOOTY_PANEL_PADDING,  emptyY)
+        empty:SetPoint("TOPRIGHT", content, "TOPRIGHT", -LOOTY_PANEL_PADDING, emptyY)
+        empty:SetJustifyH("CENTER")
+        empty:SetWordWrap(true)
         if session then
             if role == "Raider" then
                 empty:SetText("Waiting for MasterLooter to open a corpse...")
@@ -323,7 +326,7 @@ function RefreshMasterLootTab(content, frame)
             empty:SetText("Not in Master Loot mode")
         end
         empty:SetTextColor(0.35, 0.35, 0.35)
-        yOffset = yOffset - 50
+        yOffset = emptyY - 24
     end
 
     -- Update master tab count

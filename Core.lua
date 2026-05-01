@@ -63,8 +63,12 @@ function addon:PLAYER_LOGIN()
     -- Initialize domain modules
     LootyMasterLoot:Initialize()
 
-    -- Restore window position / size
+    -- Restore window position / size.
+    -- ClearAllPoints is required before SetPoint — otherwise the new anchor
+    -- stacks on top of the default one set inside UI:Create(), and both
+    -- constraints fight each other producing a wrong position.
     if self.db.windowPos.x and self.db.windowPos.y then
+        LootyFrame:ClearAllPoints()
         LootyFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT",
             self.db.windowPos.x, self.db.windowPos.y)
     end
@@ -75,14 +79,31 @@ function addon:PLAYER_LOGIN()
     self:Print("Loaded. Type /looty to toggle the window.")
 end
 
-function addon:PLAYER_LOGOUT()
-    if LootyFrame then
-        local x, y = LootyFrame:GetLeft(), LootyFrame:GetTop()
-        if x and y then self.db.windowPos.x = x; self.db.windowPos.y = y end
-        local w, h = LootyFrame:GetWidth(), LootyFrame:GetHeight()
-        if w and h then self.db.windowSize.w = w; self.db.windowSize.h = h end
+-- Persist the current frame geometry into db.
+-- Called on both drag/resize stop and PLAYER_LOGOUT so a /reload also saves.
+function addon:SaveWindowState()
+    if not LootyFrame then return end
+    local left = LootyFrame:GetLeft()
+    local top  = LootyFrame:GetTop()
+    if left and top then
+        -- Convert screen coords to UIParent-relative offsets.
+        -- GetLeft()  = px from left edge of screen  → direct X offset from TOPLEFT
+        -- GetTop()   = px from BOTTOM of screen     → subtract UIParent height to get
+        --              the negative Y offset from TOPLEFT that SetPoint expects
+        self.db.windowPos.x = left
+        self.db.windowPos.y = top - UIParent:GetHeight()
     end
+    local w, h = LootyFrame:GetWidth(), LootyFrame:GetHeight()
+    if w and h then
+        self.db.windowSize.w = w
+        self.db.windowSize.h = h
+    end
+    -- Flush to disk immediately so /reload also persists without needing logout
     Looty_SavedVars = self.db
+end
+
+function addon:PLAYER_LOGOUT()
+    self:SaveWindowState()
 end
 
 -- ============================================================
@@ -195,3 +216,4 @@ SlashCmdList["LOOTY"] = function(msg)
 end
 
 addon:RegisterEvent("PLAYER_LOGIN")
+addon:RegisterEvent("PLAYER_LOGOUT")
