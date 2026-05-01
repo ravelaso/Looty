@@ -222,16 +222,16 @@ end
 -- Returns: panel frame, total panel height.
 function BuildRollPanel(content, rollData, yOffset, opts)
     opts = opts or {}
-    local isHistory  = opts.isHistory or false
-    local iconH      = isHistory and 28 or (LOOTY_ICON_SIZE - 4)
-    local alpha      = isHistory and 0.6 or 1.0
+    local isHistory    = opts.isHistory or false
+    local iconH        = isHistory and 28 or (LOOTY_ICON_SIZE - 4)
+    local alpha        = isHistory and 0.6 or 1.0
     local contentWidth = content:GetWidth()
 
-    local panel = LootyMakePanel(content, isHistory and 0.3 or 0.6)
+    local panel  = LootyMakePanel(content, isHistory and 0.3 or 0.6)
     panel:SetWidth(contentWidth)
 
-    -- Item header
-    local rollY = LootyMakeItemHeader(panel, rollData, iconH, alpha)
+    -- Item header — returns y start for the cursor
+    local layout = LootyVLayout(panel, LootyMakeItemHeader(panel, rollData, iconH, alpha), 0)
 
     -- Timer bar (active rolls only)
     local timerBg, timerBar, timerText
@@ -239,44 +239,44 @@ function BuildRollPanel(content, rollData, yOffset, opts)
         local timerH = 3
         timerBg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
         timerBg:SetHeight(timerH)
-        timerBg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING, rollY)
-        timerBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, rollY)
+        timerBg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
+        timerBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
 
         timerBar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
         timerBar:SetHeight(timerH)
-        timerBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, rollY)
+        timerBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
 
         timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, rollY - 2)
+        timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
         timerText:SetJustifyH("RIGHT")
         timerText:SetText(string.format("%d:%02d",
             math.floor(rollData.duration / 60),
             math.floor(rollData.duration % 60)))
-        rollY = rollY - timerH - 6
+        layout:Advance(timerH + 6)
     end
 
     -- Winner banner
     local winnerPlayer, winValue, winType = rollData:DetermineWinner()
     if winnerPlayer then
-        local label = L.ROLL_LABELS[winType] or winType
+        local label  = L.ROLL_LABELS[winType] or winType
         local winTxt = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        winTxt:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, rollY)
+        winTxt:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
+        winTxt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
+        winTxt:SetJustifyH("LEFT")
+        winTxt:SetWordWrap(true)
         winTxt:SetText(">> Winner: " .. winnerPlayer .. " (" .. label .. ": " .. winValue .. ")")
         winTxt:SetTextColor(0.3, 1.0, 0.3)
-        rollY = rollY - 16 - 2
+        layout:Advance(math.max(16, winTxt:GetHeight()), 2)
     end
 
-    -- Accordion
-    local accH, _ = RenderAccordion(panel, rollData, rollY, contentWidth, isHistory)
+    -- Accordion — returns height consumed (tabs + expanded section)
+    local accH = RenderAccordion(panel, rollData, layout.y, contentWidth, isHistory)
+    layout:Advance(accH)
 
-    -- Calculate total height
-    local expandedH  = panel._accordionSection and panel._accordionSection:IsShown()
-                       and panel._accordionSection:GetHeight() or 0
-    local totalH = LOOTY_PANEL_PADDING * 2 + iconH + 6
-                 + (winnerPlayer and 18 or 0)
-                 + (not isHistory and not rollData.completed and (3 + 6) or 0)
-                 + 20 + expandedH  -- accordion tabs + section
-
+    -- Total height = distance from panel top (y=0) to cursor end + bottom padding.
+    -- layout.y is negative (WoW convention), so -layout.y gives the full depth.
+    -- Top padding is already embedded in LootyMakeItemHeader's starting Y.
+    local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)
 
     -- Store timer refs for live update (active panels)
@@ -342,13 +342,17 @@ function RefreshGroupLootTab(content, frame)
         end
     end
 
-    -- Empty state
+    -- Empty state — only shown when there are truly no rolls at all.
     if #activeRolls == 0 and #completedRolls == 0 then
-        local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        empty:SetPoint("TOP", content, "TOP", 0, -40)
+        local emptyY = yOffset - 16
+        local empty  = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        empty:SetPoint("TOPLEFT",  content, "TOPLEFT",  LOOTY_PANEL_PADDING,  emptyY)
+        empty:SetPoint("TOPRIGHT", content, "TOPRIGHT", -LOOTY_PANEL_PADDING, emptyY)
+        empty:SetJustifyH("CENTER")
+        empty:SetWordWrap(true)
         empty:SetText("No rolls yet")
         empty:SetTextColor(0.35, 0.35, 0.35)
-        yOffset = yOffset - 50
+        yOffset = emptyY - 24
     end
 
     -- Update tab count
