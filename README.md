@@ -2,6 +2,19 @@
 
 A lightweight Master Loot & Group Loot addon for **WoW WotLK (3.3.5)**. Tracks rolls in real-time, gives the Master Looter full control over loot distribution, and syncs automatically to other players using the addon — no configuration needed.
 
+
+
+## Screenshots
+
+**Master Loot Dashboard**
+
+![Master Loot](Screenshots/MasterLoot.png)
+
+**Options — Quality Filter**
+
+![Options](Screenshots/options.png)
+
+
 ## Why Looty?
 
 WoW's default loot windows are slow, cluttered, and disappear after a roll. Looty keeps everything visible in one scrollable window: who rolled, what they rolled, who's winning, and when the timer expires.
@@ -35,16 +48,6 @@ Whether you're a raid leader managing drops or a player tracking your rolls, Loo
 - Class icons next to every player name
 - Live timer bars with color-coded urgency (grey → yellow → red)
 - Three tabs: **Group** (group loot), **Master** (ML dashboard), **Options** (settings)
-
-## Screenshots
-
-**Master Loot Dashboard**
-
-![Master Loot](Screenshots/MasterLoot.png)
-
-**Options — Quality Filter**
-
-![Options](Screenshots/options.png)
 
 ## No Sync? No Problem
 
