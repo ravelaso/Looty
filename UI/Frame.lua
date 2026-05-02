@@ -121,55 +121,21 @@ function UI:Create()
     tabSep:SetPoint("BOTTOMRIGHT", tabBar, "BOTTOMRIGHT", 0, 0)
     tabSep:SetHeight(1)
 
-    -- Helper to create a tab button.
-    -- anchorRelative: the frame to anchor LEFT against
-    -- anchorPoint:    "LEFT" or "RIGHT" on anchorRelative
-    -- anchorOffset:   pixel offset
-    local function MakeTab(parent, label, w, anchorRelative, anchorPoint, anchorOffset, onClick)
-        local btn = CreateFrame("Button", nil, parent)
-        btn:SetSize(w, TH - 2)
-        btn:SetPoint("LEFT", anchorRelative, anchorPoint, anchorOffset, 0)
-        btn:EnableMouse(true)
-        btn:SetScript("OnClick", onClick)
-
-        local indicator = LootyColorTex(btn, "BORDER", 0.12, 0.12, 0.12, 0.0)
-        indicator:SetPoint("BOTTOMLEFT",  btn, "BOTTOMLEFT",  0, 0)
-        indicator:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-        indicator:SetHeight(2)
-        btn.indicator = indicator
-
-        local hover = LootyColorTex(btn, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
-        hover:SetAllPoints(btn)
-        hover:Hide()
-        btn.hoverBg = hover
-        btn:SetScript("OnEnter", function()
-            if currentTab ~= btn._tabID then hover:Show() end
-        end)
-        btn:SetScript("OnLeave", function() hover:Hide() end)
-
-        local txt = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        txt:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        txt:SetText(label)
-        btn.text = txt
-
-        return btn
-    end
-
     frame.tabs = {}
 
-    -- GroupLoot tab: LEFT of tab anchors to LEFT of tabBar + 6px
-    local glTab = MakeTab(tabBar, "Group: 0",  95, tabBar, "LEFT",  6, function() UI:SwitchTab("grouplot") end)
-    glTab._tabID = "grouplot"
+    local glTab = LootyMakeTab(tabBar, "Group: 0",  95, "grouplot",
+        tabBar, "LEFT", 6, function() UI:SwitchTab("grouplot") end,
+        function() return currentTab end)
     frame.tabs.grouplot = glTab
 
-    -- Master tab: LEFT of tab anchors to RIGHT of GroupLoot tab
-    local mlTab = MakeTab(tabBar, "Master: 0", 85, glTab,  "RIGHT", 0, function() UI:SwitchTab("master") end)
-    mlTab._tabID = "master"
+    local mlTab = LootyMakeTab(tabBar, "Master: 0", 85, "master",
+        glTab, "RIGHT", 0, function() UI:SwitchTab("master") end,
+        function() return currentTab end)
     frame.tabs.master = mlTab
 
-    -- Options tab: LEFT of tab anchors to RIGHT of Master tab
-    local optTab = MakeTab(tabBar, "Options", 65, mlTab, "RIGHT", 0, function() UI:SwitchTab("options") end)
-    optTab._tabID = "options"
+    local optTab = LootyMakeTab(tabBar, "Options", 65, "options",
+        mlTab, "RIGHT", 0, function() UI:SwitchTab("options") end,
+        function() return currentTab end)
     frame.tabs.options = optTab
 
     -- Close button

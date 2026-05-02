@@ -95,37 +95,7 @@ end
 
 local function RenderTimerBar(panel, layout, item)
     if not item:IsRolling() or not item.rollStart then return end
-    local barH = 5
-
-    local bg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
-    bg:SetHeight(barH)
-    bg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
-    bg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
-
-    local remaining = LootyMasterLoot.rollDuration - (GetTime() - item.rollStart)
-    remaining = math.max(0, remaining)
-    local pct     = remaining / LootyMasterLoot.rollDuration
-    local barW    = (panel:GetWidth() or 300) - LOOTY_PANEL_PADDING * 2
-
-    local bar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
-    bar:SetHeight(barH)
-    bar:SetWidth(barW * pct)
-    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-
-    local txt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    txt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
-    txt:SetJustifyH("RIGHT")
-    txt:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
-
-    -- Store refs for live updates
-    panel._mlItemKey   = item.itemKey
-    panel._mlRollStart = item.rollStart
-    panel._mlDuration  = LootyMasterLoot.rollDuration
-    panel._mlTimerBg   = bg
-    panel._mlTimerBar  = bar
-    panel._mlTimerText = txt
-
-    layout:Advance(barH + 4)
+    LootyMakeTimerBar(panel, layout, LootyMasterLoot.rollDuration, item.rollStart, "_ml", item.itemKey)
 end
 
 local function RenderActionButtons(panel, layout, item, action)
@@ -211,46 +181,13 @@ local function RenderRollList(panel, layout, item, alpha)
     if rollCount == 0 then return end
 
     local sortedRolls = item:GetSortedRolls()
-    -- Live: cap at 3; history: show all
     local maxRows = item:IsRolling() and math.min(3, #sortedRolls) or #sortedRolls
-    local rowH    = 16
 
     for i = 1, maxRows do
         local entry = sortedRolls[i]
         local isWin = (entry.name == item.winner)
-        local y     = layout.y
-
-        -- Winner highlight
-        if isWin then
-            local winBg = LootyColorTex(panel, "BACKGROUND",
-                0.12, 0.60, 0.12, 0.25 * alpha)
-            winBg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  0, y)
-            winBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, y)
-            winBg:SetHeight(rowH)
-        end
-
-        local cIcon = panel:CreateTexture(nil, "ARTWORK")
-        cIcon:SetSize(14, 14)
-        cIcon:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, y)
-        LootyApplyClassIcon(cIcon, entry.name)
-
-        local rIcon = panel:CreateTexture(nil, "ARTWORK")
-        rIcon:SetSize(14, 14)
-        rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
-        rIcon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
-
-        local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
-        pName:SetPoint("RIGHT", panel, "RIGHT", -LOOTY_PANEL_PADDING, 0)
-        pName:SetJustifyH("LEFT")
-        pName:SetText(entry.name .. " (" .. tostring(entry.value or "?") .. ")")
-        if isWin then
-            pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
-        else
-            pName:SetTextColor(1.0 * alpha, 0.85 * alpha, 0.2 * alpha)
-        end
-
-        layout:Advance(rowH + 1)
+        LootyMakePlayerRow(panel, entry, isWin, nil,
+            { 1.0, 0.85, 0.2 }, alpha, layout)
     end
 end
 
@@ -316,16 +253,16 @@ function RefreshMasterLootTab(content, frame)
 
     -- ---- Role badge ----
     if session then
-        local methodLbl, mH = LootyMakeLabel(content, "Loot: Master",
+        local _, mH = LootyMakeLabel(content, "Loot: Master",
             0.7, 0.7, 0.7, yOffset)
         yOffset = yOffset - mH
 
         if role == "MasterLooter" then
-            local roleLbl, rH = LootyMakeLabel(content, "Role: MasterLooter",
+            local _, rH = LootyMakeLabel(content, "Role: MasterLooter",
                 1.0, 0.82, 0.0, yOffset)
             yOffset = yOffset - rH - 2
         elseif role == "Raider" then
-            local roleLbl, rH = LootyMakeLabel(content, "Role: Raider",
+            local _, rH = LootyMakeLabel(content, "Role: Raider",
                 0.4, 0.7, 1.0, yOffset)
             yOffset = yOffset - rH - 2
         end
@@ -374,21 +311,15 @@ function RefreshMasterLootTab(content, frame)
     local doneCount = session and #session:GetDoneItems() or 0
     if mlCount == 0 and doneCount == 0 then
         local emptyY = yOffset - 16
-        local empty  = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        empty:SetPoint("TOPLEFT",  content, "TOPLEFT",  LOOTY_PANEL_PADDING,  emptyY)
-        empty:SetPoint("TOPRIGHT", content, "TOPRIGHT", -LOOTY_PANEL_PADDING, emptyY)
-        empty:SetJustifyH("CENTER")
-        empty:SetWordWrap(true)
+        local text
         if session then
-            if role == "Raider" then
-                empty:SetText("Waiting for MasterLooter to open a corpse...")
-            else
-                empty:SetText("No items looted yet — open a corpse with loot")
-            end
+            text = role == "Raider"
+                and "Waiting for MasterLooter to open a corpse..."
+                or  "No items looted yet — open a corpse with loot"
         else
-            empty:SetText("Not in Master Loot mode")
+            text = "Not in Master Loot mode"
         end
-        empty:SetTextColor(0.35, 0.35, 0.35)
+        LootyMakeEmptyState(content, text, emptyY)
         yOffset = emptyY - 24
     end
 

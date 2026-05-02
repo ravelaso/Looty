@@ -63,36 +63,27 @@ function RefreshOptionsTab(content, frame)
     local togY = layout.y
 
     if isRaider then
-        -- Raiders: just a disabled button showing source
-        local togBtn = LootyMakeDisabledButton(panel, "Filter controlled by MasterLooter", togW, togH)
+        local togBtn = LootyMakeDisabledButton(panel,
+            "Filter controlled by MasterLooter", togW, togH)
         togBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, togY)
         togBtn:Show()
     else
-        -- ML: toggle between Manual <-> Sync
-        local togLabel = syncOn and "Syncing with Blizzard — click to edit manually"
-                              or "Manual filter — click to sync with Blizzard"
-        local togNc = syncOn and { 0.05, 0.20, 0.35 } or { 0.15, 0.15, 0.15 }
-        local togHc = syncOn and { 0.10, 0.35, 0.55 } or { 0.25, 0.25, 0.25 }
-        local togTc = syncOn and { 0.4, 0.75, 1.0 }  or { 0.7, 0.7, 0.7  }
-
-        local togBtn = LootyMakeButton(panel, togLabel, togW, togH, togNc, togHc, togTc,
-            function()
+        LootyMakeToggleButton(panel, syncOn,
+            "Syncing with Blizzard — click to edit manually",
+            "Manual filter — click to sync with Blizzard",
+            function(newChecked)
                 if Looty.db then
-                    Looty.db.syncBlizzardThreshold = not syncOn
-                    if Looty.db.syncBlizzardThreshold then
-                        if isML then
-                            LootyMasterLoot._lastSyncedThreshold = GetLootThreshold()
-                            LootyMasterLoot:BroadcastFilter()
-                        end
-                        Looty:Print("Syncing filter with Blizzard loot threshold")
-                    else
-                        Looty:Print("Manual filter mode restored")
+                    Looty.db.syncBlizzardThreshold = newChecked
+                    if newChecked and isML then
+                        LootyMasterLoot._lastSyncedThreshold = GetLootThreshold()
+                        LootyMasterLoot:BroadcastFilter()
                     end
+                    Looty:Print(newChecked
+                        and "Syncing filter with Blizzard loot threshold"
+                        or "Manual filter mode restored")
                 end
                 LootyUI:Refresh()
-            end)
-        togBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, togY)
-        togBtn:Show()
+            end, togY)
     end
 
     layout:Advance(togH + 10, 4)

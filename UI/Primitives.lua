@@ -351,29 +351,152 @@ function LootyMakeDisabledButton(parent, label, w, h)
     return btn
 end
 
--- Simple checkbox: a clickable box + label.
--- checked = initial state (boolean)
--- onChange = function(isChecked)
--- Returns the check button frame.
-function LootyMakeCheckbox(parent, label, checked, onChange, yOffset)
-    local size = 16
-    local box = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    box:SetSize(size, size)
-    box:SetPoint("TOPLEFT", parent, "TOPLEFT", LOOTY_PANEL_PADDING, yOffset)
-    box:SetChecked(checked)
+-- Full-width toggle button that switches between two modes.
+-- checked: current state (boolean)
+-- checkedLabel / uncheckedLabel: text shown for each state
+-- onClick: function(isChecked)
+-- Returns: button frame, buttonHeight
+function LootyMakeToggleButton(parent, checked, checkedLabel, uncheckedLabel, onClick, layoutY)
+    local label = checked and checkedLabel or uncheckedLabel
+    local nc = checked and { 0.05, 0.20, 0.35 } or { 0.15, 0.15, 0.15 }
+    local hc = checked and { 0.10, 0.35, 0.55 } or { 0.25, 0.25, 0.25 }
+    local tc = checked and { 0.4, 0.75, 1.0 }  or { 0.7, 0.7, 0.7  }
 
-    box.text:SetText(label)
-    box.text:SetFontObject("GameFontNormalSmall")
-    box.text:ClearAllPoints()
-    box.text:SetPoint("LEFT", box, "RIGHT", 2, 0)
+    local togW = parent:GetWidth() - LOOTY_PANEL_PADDING * 2
+    local togH = 24
+    local btn = LootyMakeButton(parent, label, togW, togH, nc, hc, tc,
+        function() onClick(not checked) end)
+    btn:SetPoint("TOPLEFT", parent, "TOPLEFT", LOOTY_PANEL_PADDING, layoutY)
+    btn:Show()
+    return btn, togH
+end
 
-    if onChange then
-        box:SetScript("OnClick", function(self)
-            onChange(self:GetChecked())
-        end)
+-- Tab button with indicator, hover, and text.
+-- getCurrentTab: function() returning the active tab ID string (for hover suppression)
+-- Returns: tab frame with .indicator, .text, .hoverBg, ._tabID
+function LootyMakeTab(parent, label, w, tabID, anchorRel, anchorPt, anchorOffset, onClick, getCurrentTab)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(w, LOOTY_TAB_BAR_HEIGHT - 2)
+    btn:SetPoint("LEFT", anchorRel, anchorPt, anchorOffset, 0)
+    btn:EnableMouse(true)
+    btn._tabID = tabID
+    btn:SetScript("OnClick", onClick)
+
+    local indicator = LootyColorTex(btn, "BORDER", 0.12, 0.12, 0.12, 0.0)
+    indicator:SetPoint("BOTTOMLEFT",  btn, "BOTTOMLEFT",  0, 0)
+    indicator:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+    indicator:SetHeight(2)
+    btn.indicator = indicator
+
+    local hover = LootyColorTex(btn, "HIGHLIGHT", 0.25, 0.25, 0.25, 0.3)
+    hover:SetAllPoints(btn)
+    hover:Hide()
+    btn.hoverBg = hover
+    btn:SetScript("OnEnter", function()
+        local ct = getCurrentTab and getCurrentTab() or ""
+        if ct ~= tabID then btn.hoverBg:Show() end
+    end)
+    btn:SetScript("OnLeave", function() btn.hoverBg:Hide() end)
+
+    local txt = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    txt:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    txt:SetText(label)
+    btn.text = txt
+
+    return btn
+end
+
+-- Timer bar with background, progress fill, and MM:SS text.
+-- Stores refs on panel with prefix for live updates.
+--   prefix = "_ml" for MasterLoot, "" for GroupLoot
+-- Returns: nothing; advances layout by barH + 4
+function LootyMakeTimerBar(panel, layout, duration, startTime, prefix, itemKey)
+    if not duration or not startTime then return end
+    local barH = 5
+
+    local bg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
+    bg:SetHeight(barH)
+    bg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
+    bg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
+
+    local remaining = duration - (GetTime() - startTime)
+    remaining = math.max(0, remaining)
+    local pct  = remaining / duration
+    local barW = (panel:GetWidth() or 300) - LOOTY_PANEL_PADDING * 2
+
+    local bar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
+    bar:SetHeight(barH)
+    bar:SetWidth(barW * pct)
+    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
+
+    local txt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    txt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
+    txt:SetJustifyH("RIGHT")
+    txt:SetText(string.format("%d:%02d", math.floor(remaining / 60), math.floor(remaining % 60)))
+
+    panel[prefix .. "TimerBg"]   = bg
+    panel[prefix .. "TimerBar"]  = bar
+    panel[prefix .. "TimerText"] = txt
+    panel[prefix .. "RollStart"] = startTime
+    panel[prefix .. "Duration"]  = duration
+    if itemKey then
+        panel[prefix .. "ItemKey"] = itemKey
     end
 
-    return box
+    layout:Advance(barH + 4)
+end
+
+-- Player row: class icon + roll icon + name + optional winner background.
+-- Standardized anchoring: all icons TOPLEFT at y, name anchored LEFT+RIGHT.
+-- rowIcon: texture path (default: dice). secColor: {r,g,b} for non-winner text.
+-- Returns: nothing; advances layout by rowH + 1
+function LootyMakePlayerRow(parent, entry, isWin, rowIcon, secColor, alpha, layout)
+    local rowH = 16
+    local y    = layout.y
+
+    if isWin then
+        local winBg = LootyColorTex(parent, "BACKGROUND",
+            0.12, 0.60, 0.12, 0.25 * alpha)
+        winBg:SetPoint("TOPLEFT",  parent, "TOPLEFT",  0, y)
+        winBg:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, y)
+        winBg:SetHeight(rowH)
+    end
+
+    local cIcon = parent:CreateTexture(nil, "ARTWORK")
+    cIcon:SetSize(14, 14)
+    cIcon:SetPoint("TOPLEFT", parent, "TOPLEFT", LOOTY_PANEL_PADDING, y)
+    LootyApplyClassIcon(cIcon, entry.name)
+
+    local rIcon = parent:CreateTexture(nil, "ARTWORK")
+    rIcon:SetSize(14, 14)
+    rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
+    rIcon:SetTexture(rowIcon or "Interface\\Buttons\\UI-GroupLoot-Dice-Up")
+
+    local pName = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
+    pName:SetPoint("RIGHT", parent, "RIGHT", -LOOTY_PANEL_PADDING, 0)
+    pName:SetJustifyH("LEFT")
+    pName:SetText(entry.name .. " (" .. tostring(entry.value or "?") .. ")")
+    if isWin then
+        pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
+    else
+        pName:SetTextColor(secColor[1] * alpha, secColor[2] * alpha, secColor[3] * alpha)
+    end
+
+    layout:Advance(rowH + 1)
+end
+
+-- Centered empty-state text.
+-- Returns: height consumed (24px fixed)
+function LootyMakeEmptyState(parent, text, yOffset)
+    local empty = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    empty:SetPoint("TOPLEFT",  parent, "TOPLEFT",  LOOTY_PANEL_PADDING,  yOffset)
+    empty:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -LOOTY_PANEL_PADDING, yOffset)
+    empty:SetJustifyH("CENTER")
+    empty:SetWordWrap(true)
+    empty:SetText(text)
+    empty:SetTextColor(0.35, 0.35, 0.35)
+    return 24
 end
 
 -- Item header: icon + quality border + name fontstring + tooltip.
