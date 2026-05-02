@@ -131,7 +131,7 @@ function RefreshOptionsTab(content, frame)
             layout:Advance(nH)
         else
             local note, nH = LootyMakeLabel(panel,
-                "Threshold follows the Blizzard UI setting (Right-click portrait → Loot Method).",
+                "Threshold follows the Blizzard UI setting (Right-click portrait / Loot Method).",
                 0.3, 0.55, 0.8, layout.y - 2, nil, "GameFontHighlightSmall")
             layout:Advance(nH)
         end
