@@ -22,6 +22,7 @@ MasterLoot.lua
 UI\Primitives.lua
 UI\GroupLootUI.lua
 UI\MasterLootUI.lua
+UI\OptionsUI.lua
 UI\Frame.lua
 
 Parser.lua

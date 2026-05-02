@@ -74,50 +74,20 @@ local function RenderAccordion(panel, rollData, rollY, contentWidth, isHistory)
     local function BuildList(sectionType)
         local entries  = byType[sectionType]
         local secColor = LOOTY_SECTION_COLORS[sectionType]
+        local rollIcon = L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass
 
         for _, child in ipairs({ secFrame:GetChildren() })  do child:Hide(); child:ClearAllPoints() end
         for _, child in ipairs({ secFrame:GetRegions() })   do child:Hide() end
 
         LootyColorTex(secFrame, "BACKGROUND", 0.06, 0.06, 0.06, 0.5):SetAllPoints(secFrame)
 
-        local ly   = -4
-        local rowH = 16
+        local layout = LootyVLayout(secFrame, -4, 0)
         for _, entry in ipairs(entries) do
             local isWin = (entry.name == winnerPlayer)
-
-            local rowBg = LootyColorTex(secFrame, "BACKGROUND",
-                isWin and LOOTY_WINNER_BG[1] or 0.12,
-                isWin and LOOTY_WINNER_BG[2] or 0.12,
-                isWin and LOOTY_WINNER_BG[3] or 0.12,
-                isWin and LOOTY_WINNER_BG[4] or 0.0)
-            rowBg:SetPoint("TOPLEFT",  secFrame, "TOPLEFT",  0, ly)
-            rowBg:SetPoint("TOPRIGHT", secFrame, "TOPRIGHT", 0, ly)
-            rowBg:SetHeight(rowH)
-
-            local cIcon = secFrame:CreateTexture(nil, "ARTWORK")
-            cIcon:SetSize(14, 14)
-            cIcon:SetPoint("LEFT", secFrame, "LEFT", 2, 0)
-            cIcon:SetPoint("TOP",  rowBg,    "TOP",  0, 0)
-            LootyApplyClassIcon(cIcon, entry.name)
-
-            local rIcon = secFrame:CreateTexture(nil, "ARTWORK")
-            rIcon:SetSize(14, 14)
-            rIcon:SetPoint("LEFT", cIcon, "RIGHT", 2, 0)
-            rIcon:SetPoint("TOP",  rowBg, "TOP",   0, 0)
-            rIcon:SetTexture(L.ROLL_ICONS[sectionType] or L.ROLL_ICONS.pass)
-
-            local pName = secFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
-            pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
-            if isWin then
-                pName:SetTextColor(LOOTY_WINNER_TEXT[1], LOOTY_WINNER_TEXT[2], LOOTY_WINNER_TEXT[3])
-            else
-                pName:SetTextColor(secColor[1], secColor[2], secColor[3])
-            end
-            ly = ly - rowH - 1
+            LootyMakePlayerRow(secFrame, entry, isWin, rollIcon, secColor, 1.0, layout)
         end
 
-        local h = -ly + 4
+        local h = -layout.y + 4
         secFrame:SetHeight(h)
         return h
     end
@@ -197,10 +167,6 @@ local function RenderAccordion(panel, rollData, rollY, contentWidth, isHistory)
         end
     end
 
-    panel._accordionSection = secFrame
-    panel._accordionTabs    = tabs
-    panel._rollsByType      = byType
-
     -- Restore or auto-expand winner section
     local saved = expandedSections[rollData.rollID]
     if saved and tabs[saved] then
@@ -234,25 +200,8 @@ function BuildRollPanel(content, rollData, yOffset, opts)
     local layout = LootyVLayout(panel, LootyMakeItemHeader(panel, rollData, iconH, alpha), 0)
 
     -- Timer bar (active rolls only)
-    local timerBg, timerBar, timerText
     if not isHistory and not rollData.completed then
-        local timerH = 3
-        timerBg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
-        timerBg:SetHeight(timerH)
-        timerBg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
-        timerBg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
-
-        timerBar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
-        timerBar:SetHeight(timerH)
-        timerBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-
-        timerText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        timerText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
-        timerText:SetJustifyH("RIGHT")
-        timerText:SetText(string.format("%d:%02d",
-            math.floor(rollData.duration / 60),
-            math.floor(rollData.duration % 60)))
-        layout:Advance(timerH + 6)
+        LootyMakeTimerBar(panel, layout, rollData.duration, rollData.startTime, "_gl", rollData.rollID)
     end
 
     -- Winner banner
@@ -278,16 +227,6 @@ function BuildRollPanel(content, rollData, yOffset, opts)
     -- Top padding is already embedded in LootyMakeItemHeader's starting Y.
     local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)
-
-    -- Store timer refs for live update (active panels)
-    if not isHistory and timerBar then
-        panel.rollID    = rollData.rollID
-        panel.duration  = rollData.duration
-        panel.startTime = rollData.startTime
-        panel.timerBar  = timerBar
-        panel.timerBg   = timerBg
-        panel.timerText = timerText
-    end
 
     panel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
     panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
@@ -345,13 +284,7 @@ function RefreshGroupLootTab(content, frame)
     -- Empty state — only shown when there are truly no rolls at all.
     if #activeRolls == 0 and #completedRolls == 0 then
         local emptyY = yOffset - 16
-        local empty  = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        empty:SetPoint("TOPLEFT",  content, "TOPLEFT",  LOOTY_PANEL_PADDING,  emptyY)
-        empty:SetPoint("TOPRIGHT", content, "TOPRIGHT", -LOOTY_PANEL_PADDING, emptyY)
-        empty:SetJustifyH("CENTER")
-        empty:SetWordWrap(true)
-        empty:SetText("No rolls yet")
-        empty:SetTextColor(0.35, 0.35, 0.35)
+        LootyMakeEmptyState(content, "No rolls yet", emptyY)
         yOffset = emptyY - 24
     end
 
@@ -370,23 +303,23 @@ end
 
 function UpdateGroupLootTimers(content)
     for _, child in ipairs({ content:GetChildren() }) do
-        if child.rollID and child.timerBar and child.timerBar:IsShown() then
-            local elapsed   = GetTime() - child.startTime
-            local remaining = math.max(0, child.duration - elapsed)
-            local pct       = remaining / child.duration
+        if child._glTimerBar and child._glRollStart then
+            local elapsed   = GetTime() - child._glRollStart
+            local remaining = math.max(0, child._glDuration - elapsed)
+            local pct       = remaining / child._glDuration
 
-            child.timerBar:SetWidth(child.timerBg:GetWidth() * pct)
+            child._glTimerBar:SetWidth(child._glTimerBg:GetWidth() * pct)
 
             if pct < 0.25 then
-                child.timerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                child._glTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
             elseif pct < 0.5 then
-                child.timerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                child._glTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
             else
-                child.timerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                child._glTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
             end
 
-            if child.timerText then
-                child.timerText:SetText(string.format("%d:%02d",
+            if child._glTimerText then
+                child._glTimerText:SetText(string.format("%d:%02d",
                     math.floor(remaining / 60), math.floor(remaining % 60)))
             end
         end

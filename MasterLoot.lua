@@ -14,11 +14,13 @@
 --   slot    — loot slot index, stable for the session
 --   Two drops of the same item get different slots → unique keys.
 --
--- ITEM\001itemKey\001link\001texture\001quality\001name  → one per item
--- ROLL_START\001itemKey                                  → roll opened
--- ROLL_END\001itemKey\001winnerName                      → roll closed
--- ITEM_DONE\001itemKey                                   → item finalized
--- CLEAR                                                  → session ended
+-- ITEM\001itemKey\001link\001texture\001quality\001name        → one per item
+-- ROLL_START\001itemKey                                        → roll opened
+-- REROLL_START\001itemKey\001player1\001player2...             → tie re-roll (eligible only)
+-- ROLL_END\001itemKey\001winnerName                            → roll closed
+-- ITEM_DONE\001itemKey                                         → item finalized
+-- FILTER\001qualityValue                                       → ML broadcasts filter change
+-- CLEAR                                                        → session ended
 --
 -- ClearDone is a LOCAL UI operation — no protocol message is sent.
 -- Each client manages its own Done/History view independently.
@@ -42,19 +44,21 @@ Item.__index = Item
 
 function Item.new(itemKey, link, texture, quality, name, slot)
     return setmetatable({
-        itemKey   = itemKey,
-        link      = link   or "",
-        texture   = texture or "",
-        quality   = quality or 2,
-        name      = name   or "Unknown",
-        slot      = slot   or 0,
-        quantity  = 1,
-        rolls     = {},    -- { [playerName] = { value, time } }
-        rerolls   = {},    -- { [playerName] = { value, time } } duplicate rolls
-        rolling   = false,
-        rollStart = nil,
-        isDone    = false,
-        winner    = nil,
+        itemKey          = itemKey,
+        link             = link   or "",
+        texture          = texture or "",
+        quality          = quality or 2,
+        name             = name   or "Unknown",
+        slot             = slot   or 0,
+        quantity         = 1,
+        rolls            = {},    -- { [playerName] = { value, time } }
+        rerolls          = {},    -- { [playerName] = { value, time } } duplicate rolls
+        rolling          = false,
+        rollStart        = nil,
+        isDone           = false,
+        winner           = nil,
+        wasRolled        = nil,
+        eligiblePlayers  = nil,   -- set during re-rolls: { [name] = true }
     }, Item)
 end
 
@@ -82,6 +86,40 @@ end
 
 function Item:HasRolled(playerName)
     return self.rolls[playerName] ~= nil
+end
+
+-- Return all players sharing the highest roll value.
+-- Returns { names = { name1, name2 }, value = bestValue }
+function Item:GetTiedWinners()
+    local bestValue = 0
+    local names = {}
+    for playerName, info in pairs(self.rolls) do
+        if info.value and info.value > bestValue then
+            bestValue = info.value
+            names = { playerName }
+        elseif info.value and info.value == bestValue then
+            table.insert(names, playerName)
+        end
+    end
+    if #names <= 1 then return nil end
+    return { names = names, value = bestValue }
+end
+
+function Item:IsTied()
+    return self:GetTiedWinners() ~= nil
+end
+
+-- Reset roll state but restrict future rolls to the tied players only.
+function Item:ResetForReroll()
+    local tied = self:GetTiedWinners()
+    if not tied then return end
+    self.rolling   = false
+    self.rollStart = nil
+    self.winner    = nil
+    self.eligiblePlayers = {}
+    for _, name in ipairs(tied.names) do
+        self.eligiblePlayers[name] = true
+    end
 end
 
 -- Determine winner: highest value among all rolls.
@@ -114,6 +152,9 @@ end
 -- Record a /roll result. Returns "ok", "reroll", or "no_active_roll".
 function Item:RecordRoll(playerName, value)
     if not self.rolling then return "no_active_roll" end
+    if self.eligiblePlayers and not self.eligiblePlayers[playerName] then
+        return "not_eligible"
+    end
     if self.rolls[playerName] then
         self.rerolls[playerName] = { value = value, time = GetTime() }
         return "reroll"
@@ -324,6 +365,18 @@ function MasterLoot:OnLootMethodChanged()
 
     self:ResolveRole()
 
+    -- Sync mode: ML detects Blizzard threshold changes and broadcasts to Raiders
+    if self:IsML() and Looty.db and Looty.db.syncBlizzardThreshold then
+        local newThreshold = GetLootThreshold()
+        if self._lastSyncedThreshold ~= newThreshold then
+            self._lastSyncedThreshold = newThreshold
+            self:BroadcastFilter()
+            if Looty.db.debug then
+                Looty:Print("[ML] Blizzard threshold changed → " .. newThreshold .. " broadcast to Raiders")
+            end
+        end
+    end
+
     local nowActive = self:IsActive()
     if wasActive ~= nowActive then
         if LootyUI and LootyUI.SwitchTab then
@@ -363,7 +416,7 @@ function MasterLoot:OnLootOpened()
     for i = 1, numItems do
         local texture, name, quantity, quality = GetLootSlotInfo(i)
         local link = GetLootSlotLink(i)
-        if name and link then
+        if name and link and self:ShouldIncludeItem(quality) then
             local itemKey = ExtractItemKey(link, i)
             self.session.items[itemKey] = Item.new(
                 itemKey, link, texture, quality, name, i)
@@ -477,7 +530,7 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
             end
         end
         local item = self:DeserializeItem(message)
-        if item then
+        if item and self:ShouldIncludeItem(item.quality) then
             self.session.items[item.itemKey] = item
             if Looty.db and Looty.db.debug then
                 Looty:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
@@ -488,10 +541,34 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
         local itemKey = string.sub(message, 12)
         local item    = self.session:GetItem(itemKey)
         if item then
+            item.rolling         = true
+            item.rollStart       = GetTime()
+            item.rolls           = {}
+            item.rerolls         = {}
+            item.eligiblePlayers = nil
+            item.wasRolled       = true
+            self.session.currentRoll = itemKey
+        end
+
+    elseif string.sub(message, 1, 13) == "REROLL_START" .. SEP then
+        -- Parse: REROLL_START\001itemKey\001name1\001name2...
+        local parts = {}
+        for seg in string.gmatch(message, "[^" .. SEP .. "]+") do
+            table.insert(parts, seg)
+        end
+        -- parts[1]=REROLL_START, parts[2]=itemKey, parts[3..N]=eligible names
+        local itemKey = parts[2]
+        local item    = self.session:GetItem(itemKey)
+        if item and itemKey then
             item.rolling    = true
             item.rollStart  = GetTime()
             item.rolls      = {}
             item.rerolls    = {}
+            item.wasRolled  = true
+            item.eligiblePlayers = {}
+            for i = 3, #parts do
+                item.eligiblePlayers[parts[i]] = true
+            end
             self.session.currentRoll = itemKey
         end
 
@@ -520,9 +597,46 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
 
     elseif message == "CLEAR" then
         self.session = nil
+
+    elseif string.sub(message, 1, 7) == "FILTER" .. SEP then
+        local val = tonumber(string.sub(message, 8))
+        if val ~= nil and self.session then
+            self.session.qualityFilter = val
+            if Looty.db and Looty.db.debug then
+                Looty:Print("[ML] Raider: filter synced from ML → " .. val)
+            end
+        end
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+-- ============================================================
+-- ---- Quality filter ----
+-- ============================================================
+
+-- Returns the active threshold: blizzard threshold (sync mode), session filter
+-- (Raider synced from ML), or local db.
+function MasterLoot:GetFilterThreshold()
+    if Looty.db and Looty.db.syncBlizzardThreshold then
+        return GetLootThreshold()
+    end
+    if self.session and self.session.qualityFilter ~= nil then
+        return self.session.qualityFilter
+    end
+    return Looty.db and Looty.db.qualityFilter or 2
+end
+
+function MasterLoot:ShouldIncludeItem(quality)
+    return (quality or 0) >= self:GetFilterThreshold()
+end
+
+-- Broadcast current filter to all Raiders via addon channel.
+-- Only callable by ML. Raiders update their session filter on receipt.
+function MasterLoot:BroadcastFilter()
+    if not self:IsML() then return end
+    local threshold = self:GetFilterThreshold()
+    self:SendMessage("FILTER" .. SEP .. tostring(threshold))
 end
 
 -- ============================================================
@@ -541,6 +655,8 @@ function MasterLoot:StartRoll(itemKey)
     item.rolls     = {}
     item.rerolls   = {}
     item.winner    = nil
+    item.eligiblePlayers = nil
+    item.wasRolled = true
     self.session.currentRoll = itemKey
 
     local msg = ">> Rolling for: " .. (item.link or item.name) ..
@@ -564,19 +680,29 @@ function MasterLoot:EndRoll(itemKey)
     self.session.currentRoll = nil
     self.rollTimer           = nil
 
-    local winner, winValue = item:GetWinner()
-    item.winner = winner
-
-    if winner then
-        local msg = ">> " .. winner .. " wins " .. (item.link or item.name) ..
-                    " with " .. winValue .. "!"
-        SendChatMessage(msg, "RAID_WARNING")
+    local tied = item:GetTiedWinners()
+    if tied then
+        -- Tie detected — no winner, ML can re-roll tied players
+        item.winner = nil
+        local tieStr = table.concat(tied.names, " & ")
+        local msg = ">> Tie at " .. tied.value .. "! " .. tieStr .. " — ML can re-roll"
         Looty:Print(msg)
+        self:SendMessage("ROLL_END" .. SEP .. itemKey .. SEP .. "none")
     else
-        Looty:Print("No rolls for " .. (item.link or item.name))
-    end
+        local winner, winValue = item:GetWinner()
+        item.winner = winner
 
-    self:SendMessage("ROLL_END" .. SEP .. itemKey .. SEP .. (winner or "none"))
+        if winner then
+            local msg = ">> " .. winner .. " wins " .. (item.link or item.name) ..
+                        " with " .. winValue .. "!"
+            SendChatMessage(msg, "RAID_WARNING")
+            Looty:Print(msg)
+        else
+            Looty:Print("No rolls for " .. (item.link or item.name))
+        end
+
+        self:SendMessage("ROLL_END" .. SEP .. itemKey .. SEP .. (winner or "none"))
+    end
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
 end
 
@@ -594,6 +720,40 @@ function MasterLoot:CancelRoll()
         self.rollTimer:Hide()
         self.rollTimer = nil
     end
+    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+function MasterLoot:StartReRoll(itemKey)
+    if not self:IsML() then return end
+    local item = self.session:GetItem(itemKey)
+    if not item or not item:IsTied() then return end
+
+    if self.rollTimer then self.rollTimer:Hide() end
+
+    item:ResetForReroll()
+    item.rolling   = true
+    item.rollStart = GetTime()
+    item.rolls     = {}
+    item.rerolls   = {}
+    self.session.currentRoll = itemKey
+
+    local names = {}
+    for name in pairs(item.eligiblePlayers) do table.insert(names, name) end
+    local tieStr = table.concat(names, " & ")
+
+    local msg = ">> Tie re-roll! Only " .. tieStr ..
+                " — /roll now! (" .. self.rollDuration .. "s)"
+    SendChatMessage(msg, "RAID_WARNING")
+    Looty:Print(msg)
+
+    -- Send REROLL_START with eligible players so Raiders know who is eligible
+    local rerollMsg = "REROLL_START" .. SEP .. itemKey
+    for _, name in ipairs(names) do
+        rerollMsg = rerollMsg .. SEP .. name
+    end
+    self:SendMessage(rerollMsg)
+    self.rollTimer = self:CreateTimer(itemKey)
+
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
 end
 
@@ -691,6 +851,7 @@ end
 -- ============================================================
 
 function MasterLoot:InjectTestRolls()
+    LootyPreloadTestClass()
     self.session = Session.new("MasterLooter")
     local now    = GetTime()
 
@@ -726,15 +887,28 @@ function MasterLoot:InjectTestRolls()
         MageBob   = { value = 65, time = now },
     }
 
-    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3 }
+    -- Item with a tie: IronWall and ShadowMaw both rolled 94
+    local i4 = makeItem("29329:4",
+        "|cffff8000|Hitem:29329:0:0:0:0:0:0:0:0|h[Ring of the Titans]|h|r",
+        "Interface\\Icons\\INV_Jewelry_Ring_42", 5, "Ring of the Titans", 4)
+    i4.rolls = {
+        IronWall  = { value = 94, time = now },
+        Buenclima = { value = 94, time = now },
+        DPSKing   = { value = 77, time = now },
+        MageBob   = { value = 45, time = now },
+    }
+    i4.wasRolled = true
+
+    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3, ["29329:4"] = i4 }
     self.session.currentRoll = "18815:1"
 
-    Looty:Print("Master Loot test data injected — 2 pending, 1 done. Role: MasterLooter")
+    Looty:Print("Master Loot test data injected — 2 rolling, 1 done, 1 tie. Role: MasterLooter")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
     if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end
 
 function MasterLoot:InjectRemoteTest()
+    LootyPreloadTestClass()
     self.session = Session.new("Raider")
     self.session.mlName = "TestMaster"
     local now = GetTime()
@@ -771,10 +945,21 @@ function MasterLoot:InjectRemoteTest()
         MageBob   = { value = 65, time = now },
     }
 
-    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3 }
+    local i4 = makeItem("29329:4",
+        "|cffff8000|Hitem:29329:0:0:0:0:0:0:0:0|h[Ring of the Titans]|h|r",
+        "Interface\\Icons\\INV_Jewelry_Ring_42", 5, "Ring of the Titans", 4)
+    i4.rolls = {
+        IronWall  = { value = 94, time = now },
+        ShadowMaw = { value = 94, time = now },
+        DPSKing   = { value = 77, time = now },
+        MageBob   = { value = 45, time = now },
+    }
+    i4.wasRolled = true
+
+    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3, ["29329:4"] = i4 }
     self.session.currentRoll = "18815:1"
 
-    Looty:Print("Remote test data injected — 2 pending, 1 done. Role: Raider  ML: TestMaster")
+    Looty:Print("Remote test data injected — 2 rolling, 1 done, 1 tie. Role: Raider  ML: TestMaster")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
     if LootyUI and LootyUI.Refresh   then LootyUI:Refresh() end
 end
