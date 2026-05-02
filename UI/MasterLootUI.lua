@@ -53,14 +53,9 @@ local function RenderStatusLine(panel, layout, item, alpha)
         statusText = statusText .. " | " .. rerollCount .. " re-roll(s)"
     end
 
-    local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    fs:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
-    fs:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(true)
-    fs:SetText(statusText)
-    fs:SetTextColor(statusColor[1] * alpha, statusColor[2] * alpha, statusColor[3] * alpha)
-    layout:Advance(math.max(16, fs:GetHeight()))
+    local fs, fsH = LootyMakeLabel(panel, statusText,
+        statusColor[1] * alpha, statusColor[2] * alpha, statusColor[3] * alpha, layout.y)
+    layout:Advance(fsH)
 end
 
 local function RenderTimerBar(panel, layout, item)
@@ -176,6 +171,7 @@ local function RenderRollList(panel, layout, item, alpha)
 
         local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
+        pName:SetPoint("RIGHT", panel, "RIGHT", -LOOTY_PANEL_PADDING, 0)
         pName:SetText(entry.name .. " (" .. tostring(entry.value or "?") .. ")")
         if isWin then
             pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
@@ -193,13 +189,9 @@ local function RenderRerollWarning(panel, layout, item, alpha)
     for playerName, info in pairs(item.rerolls) do
         table.insert(names, playerName .. "(" .. (info.value or "?") .. ")")
     end
-    local warnTxt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    warnTxt:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-    warnTxt:SetPoint("RIGHT",   panel, "RIGHT",  -LOOTY_PANEL_PADDING, 0)
-    warnTxt:SetJustifyH("LEFT")
-    warnTxt:SetText("Re-rolls: " .. table.concat(names, ", "))
-    warnTxt:SetTextColor(1.0 * alpha, 0.4 * alpha, 0.2 * alpha)
-    layout:Advance(16)
+    local warnTxt, warnH = LootyMakeLabel(panel, "Re-rolls: " .. table.concat(names, ", "),
+        1.0 * alpha, 0.4 * alpha, 0.2 * alpha, layout.y, nil, "GameFontHighlightSmall")
+    layout:Advance(warnH)
 end
 
 -- ============================================================

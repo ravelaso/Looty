@@ -38,23 +38,16 @@ function RefreshOptionsTab(content, frame)
 
     local layout = LootyVLayout(panel, -(LOOTY_PANEL_PADDING + 14), 0)
 
-    local filterLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    filterLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-    filterLabel:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
-    filterLabel:SetJustifyH("LEFT")
-    filterLabel:SetWordWrap(true)
-    filterLabel:SetText("Minimum item quality to track:")
-    filterLabel:SetTextColor(0.6, 0.6, 0.6)
-    layout:Advance(16, 2)
+    local filterLabel, flH = LootyMakeLabel(panel, "Minimum item quality to track:",
+        0.6, 0.6, 0.6, layout.y)
+    layout:Advance(flH, 2)
 
     -- Current filter display
     local currentFilter = Looty.db and Looty.db.qualityFilter or 2
     local fc = LOOTY_QUALITY_COLORS[currentFilter] or LOOTY_QUALITY_COLORS[2]
-    local currentLbl = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    currentLbl:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-    currentLbl:SetText("Current: " .. GetQualityLabel(currentFilter))
-    currentLbl:SetTextColor(fc.r, fc.g, fc.b)
-    layout:Advance(16, 6)
+    local currentLbl, clH = LootyMakeLabel(panel,
+        "Current: " .. GetQualityLabel(currentFilter), fc.r, fc.g, fc.b, layout.y)
+    layout:Advance(clH, 6)
 
     -- Quality tier buttons
     local btnW = (panel:GetWidth() - LOOTY_PANEL_PADDING * 2 - 4 * 4) / 6
@@ -86,15 +79,10 @@ function RefreshOptionsTab(content, frame)
     layout:Advance(4 + btnH + LOOTY_PANEL_PADDING)
 
     -- Info text
-    local infoY = layout.y - 2
-    local info = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    info:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, infoY)
-    info:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, infoY)
-    info:SetJustifyH("LEFT")
-    info:SetWordWrap(true)
-    info:SetText("Only items of this quality or higher will appear in the Master Loot tab and trigger rolls.")
-    info:SetTextColor(0.4, 0.4, 0.4)
-    layout:Advance(24)
+    local info, infoH = LootyMakeLabel(panel,
+        "Only items of this quality or higher will appear in the Master Loot tab and trigger rolls.",
+        0.4, 0.4, 0.4, layout.y - 2, nil, "GameFontHighlightSmall")
+    layout:Advance(infoH)
 
     local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)

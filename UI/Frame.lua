@@ -191,6 +191,9 @@ function UI:Create()
 
     -- ---- Resize grip ----
     frame:SetResizable(true)
+    frame:SetMinResize(LOOTY_MIN_WIDTH, LOOTY_MIN_HEIGHT)
+    
+
     local grip = CreateFrame("Button", nil, frame)
     grip:SetSize(16, 16)
     grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
@@ -205,6 +208,11 @@ function UI:Create()
     grip:SetScript("OnDragStart", function() frame:StartSizing("BOTTOMRIGHT") end)
     grip:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
+        -- Enforce minimum size (SetResizeBounds unavailable in 3.3.5)
+        local w = frame:GetWidth()
+        local h = frame:GetHeight()
+        if w < LOOTY_MIN_WIDTH then frame:SetWidth(LOOTY_MIN_WIDTH) end
+        if h < LOOTY_MIN_HEIGHT then frame:SetHeight(LOOTY_MIN_HEIGHT) end
         content:SetWidth(frame:GetWidth() - CM * 2 - SW - 2)
         Looty:SaveWindowState()
         UI:Refresh()

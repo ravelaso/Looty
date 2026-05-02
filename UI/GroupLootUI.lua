@@ -108,6 +108,7 @@ local function RenderAccordion(panel, rollData, rollY, contentWidth, isHistory)
 
             local pName = secFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
+            pName:SetPoint("RIGHT", secFrame, "RIGHT", -4, 0)
             pName:SetText(entry.value and (entry.name .. " (" .. entry.value .. ")") or entry.name)
             if isWin then
                 pName:SetTextColor(LOOTY_WINNER_TEXT[1], LOOTY_WINNER_TEXT[2], LOOTY_WINNER_TEXT[3])

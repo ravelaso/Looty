@@ -14,6 +14,8 @@ LOOTY_ICON_SIZE       = 36
 LOOTY_CONTENT_MARGIN  = 4
 LOOTY_PANEL_PADDING   = 8
 LOOTY_SCROLL_WIDTH    = 14
+LOOTY_MIN_WIDTH       = 290
+LOOTY_MIN_HEIGHT      = 280
 
 -- ============================================================
 -- ---- Shared texture reference ----
@@ -270,6 +272,8 @@ end
 
 -- Simple text label anchored TOPLEFT with a right bound so it wraps correctly.
 -- Both anchors (TOPLEFT + TOPRIGHT) constrain the width, enabling word wrap.
+-- SetWidth() is explicit because anchors alone may not resolve before SetText.
+-- SetNonSpaceWrap(true) allows wrapping at any character boundary.
 -- GetHeight() is reliable only after SetText with a width constraint in place.
 -- Returns: fontstring, height consumed (actual rendered height, min 16).
 function LootyMakeLabel(parent, text, r, g, b, yOffset, xOffset, font)
@@ -279,7 +283,9 @@ function LootyMakeLabel(parent, text, r, g, b, yOffset, xOffset, font)
     fs:SetPoint("TOPLEFT",  parent, "TOPLEFT",  xOffset,  yOffset)
     fs:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -xOffset, yOffset)
     fs:SetJustifyH("LEFT")
+    fs:SetWidth(parent:GetWidth() - xOffset * 2)
     fs:SetWordWrap(true)
+    fs:SetNonSpaceWrap(true)
     fs:SetText(text)
     fs:SetTextColor(r, g, b)
     return fs, math.max(16, fs:GetHeight())
