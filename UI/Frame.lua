@@ -167,6 +167,11 @@ function UI:Create()
     mlTab._tabID = "master"
     frame.tabs.master = mlTab
 
+    -- Options tab: LEFT of tab anchors to RIGHT of Master tab
+    local optTab = MakeTab(tabBar, "Options", 65, mlTab, "RIGHT", 0, function() UI:SwitchTab("options") end)
+    optTab._tabID = "options"
+    frame.tabs.options = optTab
+
     -- Close button
     local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, 1)
@@ -241,9 +246,15 @@ function UI:SwitchTab(tab)
     if tab == "grouplot" then
         activate(frame.tabs.grouplot)
         deactivate(frame.tabs.master)
-    else
+        deactivate(frame.tabs.options)
+    elseif tab == "master" then
         deactivate(frame.tabs.grouplot)
         activate(frame.tabs.master)
+        deactivate(frame.tabs.options)
+    else
+        deactivate(frame.tabs.grouplot)
+        deactivate(frame.tabs.master)
+        activate(frame.tabs.options)
     end
 
     if frame.scrollFrame then frame.scrollFrame:SetVerticalScroll(0) end
@@ -276,8 +287,10 @@ function UI:Refresh()
     local finalY
     if currentTab == "grouplot" then
         finalY = RefreshGroupLootTab(content, frame)
-    else
+    elseif currentTab == "master" then
         finalY = RefreshMasterLootTab(content, frame)
+    else
+        finalY = RefreshOptionsTab(content, frame)
     end
 
     -- Content height

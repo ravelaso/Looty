@@ -363,7 +363,7 @@ function MasterLoot:OnLootOpened()
     for i = 1, numItems do
         local texture, name, quantity, quality = GetLootSlotInfo(i)
         local link = GetLootSlotLink(i)
-        if name and link then
+        if name and link and self:ShouldIncludeItem(quality) then
             local itemKey = ExtractItemKey(link, i)
             self.session.items[itemKey] = Item.new(
                 itemKey, link, texture, quality, name, i)
@@ -477,7 +477,7 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
             end
         end
         local item = self:DeserializeItem(message)
-        if item then
+        if item and self:ShouldIncludeItem(item.quality) then
             self.session.items[item.itemKey] = item
             if Looty.db and Looty.db.debug then
                 Looty:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
@@ -523,6 +523,15 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+-- ============================================================
+-- ---- Quality filter ----
+-- ============================================================
+
+function MasterLoot:ShouldIncludeItem(quality)
+    local threshold = Looty.db and Looty.db.qualityFilter or 2
+    return (quality or 0) >= threshold
 end
 
 -- ============================================================
