@@ -10,11 +10,12 @@ local addon = CreateFrame("Frame", "LootyCore", UIParent)
 Looty = addon
 
 local DEFAULT_SAVED = {
-    windowPos     = { x = nil, y = nil },
-    windowSize    = { w = nil, h = nil },
-    locked        = false,
-    debug         = false,
-    qualityFilter = 2,  -- Uncommon (green) minimum by default
+    windowPos             = { x = nil, y = nil },
+    windowSize            = { w = nil, h = nil },
+    locked                = false,
+    debug                 = false,
+    qualityFilter         = 2,  -- Uncommon (green) minimum by default
+    syncBlizzardThreshold = false,
 }
 
 addon.db = {}

@@ -351,6 +351,31 @@ function LootyMakeDisabledButton(parent, label, w, h)
     return btn
 end
 
+-- Simple checkbox: a clickable box + label.
+-- checked = initial state (boolean)
+-- onChange = function(isChecked)
+-- Returns the check button frame.
+function LootyMakeCheckbox(parent, label, checked, onChange, yOffset)
+    local size = 16
+    local box = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    box:SetSize(size, size)
+    box:SetPoint("TOPLEFT", parent, "TOPLEFT", LOOTY_PANEL_PADDING, yOffset)
+    box:SetChecked(checked)
+
+    box.text:SetText(label)
+    box.text:SetFontObject("GameFontNormalSmall")
+    box.text:ClearAllPoints()
+    box.text:SetPoint("LEFT", box, "RIGHT", 2, 0)
+
+    if onChange then
+        box:SetScript("OnClick", function(self)
+            onChange(self:GetChecked())
+        end)
+    end
+
+    return box
+end
+
 -- Item header: icon + quality border + name fontstring + tooltip.
 -- Anchors icon TOPLEFT inside parent at (PANEL_PADDING, -PANEL_PADDING).
 -- Returns yOffset after the header (i.e. the next usable yOffset below the icon).

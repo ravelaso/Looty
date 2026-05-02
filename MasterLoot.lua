@@ -365,6 +365,18 @@ function MasterLoot:OnLootMethodChanged()
 
     self:ResolveRole()
 
+    -- Sync mode: ML detects Blizzard threshold changes and broadcasts to Raiders
+    if self:IsML() and Looty.db and Looty.db.syncBlizzardThreshold then
+        local newThreshold = GetLootThreshold()
+        if self._lastSyncedThreshold ~= newThreshold then
+            self._lastSyncedThreshold = newThreshold
+            self:BroadcastFilter()
+            if Looty.db.debug then
+                Looty:Print("[ML] Blizzard threshold changed → " .. newThreshold .. " broadcast to Raiders")
+            end
+        end
+    end
+
     local nowActive = self:IsActive()
     if wasActive ~= nowActive then
         if LootyUI and LootyUI.SwitchTab then
@@ -603,8 +615,12 @@ end
 -- ---- Quality filter ----
 -- ============================================================
 
--- Returns the active threshold: session filter (Raider synced from ML) or local db.
+-- Returns the active threshold: blizzard threshold (sync mode), session filter
+-- (Raider synced from ML), or local db.
 function MasterLoot:GetFilterThreshold()
+    if Looty.db and Looty.db.syncBlizzardThreshold then
+        return GetLootThreshold()
+    end
     if self.session and self.session.qualityFilter ~= nil then
         return self.session.qualityFilter
     end
@@ -619,7 +635,7 @@ end
 -- Only callable by ML. Raiders update their session filter on receipt.
 function MasterLoot:BroadcastFilter()
     if not self:IsML() then return end
-    local threshold = Looty.db and Looty.db.qualityFilter or 2
+    local threshold = self:GetFilterThreshold()
     self:SendMessage("FILTER" .. SEP .. tostring(threshold))
 end
 
