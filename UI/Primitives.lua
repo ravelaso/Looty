@@ -145,6 +145,18 @@ function LootyApplyClassIcon(tex, playerName)
     return false
 end
 
+-- Seeds the class cache with fake names for test data injection.
+function LootyPreloadTestClass()
+    classCache["IronWall"]  = "WARRIOR"
+    classCache["TankJoe"]   = "PALADIN"
+    classCache["Buenclima"] = "DRUID"
+    classCache["ShadowMaw"] = "WARLOCK"
+    classCache["HealMePlz"] = "PRIEST"
+    classCache["DPSKing"]   = "DEATHKNIGHT"
+    classCache["WarriorK"]  = "WARRIOR"
+    classCache["MageBob"]   = "MAGE"
+end
+
 -- ============================================================
 -- ---- Layout cursors ----
 -- ============================================================

@@ -8,17 +8,34 @@
 -- ============================================================
 -- ---- Determine what action buttons a player can take ----
 -- ============================================================
--- Returns one of: "ml_idle" | "ml_rolling" | "raider_roll" | "raider_rolled" | nil
+-- Returns one of:
+--   ML:    "ml_idle" | "ml_rolling" | "ml_tie"
+--   Raider: "raider_roll" | "raider_rolled" | "raider_reroll" | "raider_rerolled"
+--           "raider_not_eligible" | "raider_tie_pending" | nil
 
 local function GetItemAction(item, isML)
     if item:IsDone() then return nil end
     if isML then
+        if item:IsTied() then return "ml_tie" end
         return item:IsRolling() and "ml_rolling" or "ml_idle"
     else
-        -- Raider
-        if not item:IsRolling() then return nil end
         local myName = UnitName("player")
-        return item:HasRolled(myName) and "raider_rolled" or "raider_roll"
+        -- Re-roll phase: eligiblePlayers is set and rolling
+        if item:IsRolling() and item.eligiblePlayers then
+            if not item.eligiblePlayers[myName] then
+                return "raider_not_eligible"
+            end
+            return item:HasRolled(myName) and "raider_rerolled" or "raider_reroll"
+        end
+        -- Normal roll phase
+        if item:IsRolling() then
+            return item:HasRolled(myName) and "raider_rolled" or "raider_roll"
+        end
+        -- Tie pending: roll ended, no winner, was rolled
+        if item.wasRolled and not item.winner and not item:IsDone() then
+            return "raider_tie_pending"
+        end
+        return nil
     end
 end
 
@@ -29,15 +46,33 @@ end
 -- Button color palettes reused across action states
 local BTN_GREEN = { { 0.15, 0.35, 0.15 }, { 0.25, 0.45, 0.25 }, { 0.5, 1.0, 0.5 } }
 local BTN_RED   = { { 0.25, 0.15, 0.15 }, { 0.35, 0.25, 0.25 }, { 1.0, 0.5, 0.5 } }
+local BTN_ORANGE = { { 0.35, 0.20, 0.05 }, { 0.50, 0.30, 0.10 }, { 1.0, 0.75, 0.3 } }
 
 local function RenderStatusLine(panel, layout, item, alpha)
     local rollCount   = item:RollCount()
     local rerollCount = item:RerollCount()
+    local isML        = LootyMasterLoot:IsML()
     local statusColor, statusText
 
     if item:IsRolling() then
-        statusColor = { 1.0, 0.85, 0.2 }
-        statusText  = "Rolling... (" .. rollCount .. " rolls)"
+        if item.eligiblePlayers and next(item.eligiblePlayers) then
+            local names = {}
+            for name in pairs(item.eligiblePlayers) do table.insert(names, name) end
+            statusColor = { 1.0, 0.65, 0.2 }
+            statusText  = "Re-rolling: " .. table.concat(names, " & ")
+        else
+            statusColor = { 1.0, 0.85, 0.2 }
+            statusText  = "Rolling... (" .. rollCount .. " rolls)"
+        end
+    elseif not isML and item.wasRolled and not item.winner and not item:IsDone() then
+        -- Raider tie pending state
+        statusColor = { 1.0, 0.5, 0.2 }
+        statusText  = "Tie! Waiting for ML to re-roll..."
+    elseif item:IsTied() then
+        local tied = item:GetTiedWinners()
+        statusColor = { 1.0, 0.5, 0.2 }
+        statusText  = "Tie: " .. table.concat(tied.names, " & ") ..
+                      " (" .. tied.value .. " each)"
     elseif item.winner then
         statusColor = { 0.3, 1.0, 0.3 }
         statusText  = "Winner: " .. item.winner
@@ -60,19 +95,23 @@ end
 
 local function RenderTimerBar(panel, layout, item)
     if not item:IsRolling() or not item.rollStart then return end
-    local barH = 3
+    local barH = 5
 
     local bg = LootyColorTex(panel, "BACKGROUND", 0.1, 0.1, 0.1, 0.8)
     bg:SetHeight(barH)
     bg:SetPoint("TOPLEFT",  panel, "TOPLEFT",  LOOTY_PANEL_PADDING,  layout.y)
     bg:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y)
 
-    local bar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
-    bar:SetHeight(barH)
-    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
-
     local remaining = LootyMasterLoot.rollDuration - (GetTime() - item.rollStart)
     remaining = math.max(0, remaining)
+    local pct     = remaining / LootyMasterLoot.rollDuration
+    local barW    = (panel:GetWidth() or 300) - LOOTY_PANEL_PADDING * 2
+
+    local bar = LootyColorTex(panel, "ARTWORK", 0.4, 0.4, 0.4, 0.8)
+    bar:SetHeight(barH)
+    bar:SetWidth(barW * pct)
+    bar:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, layout.y)
+
     local txt = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     txt:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -LOOTY_PANEL_PADDING, layout.y - 2)
     txt:SetJustifyH("RIGHT")
@@ -109,6 +148,17 @@ local function RenderActionButtons(panel, layout, item, action)
         row:Place(doneBtn,  panel, LOOTY_PANEL_PADDING, atY)
         startBtn:Show(); doneBtn:Show()
 
+    elseif action == "ml_tie" then
+        local rerollBtn = LootyMakeButton(panel, "Re-roll", 65, BTN_H,
+            BTN_ORANGE[1], BTN_ORANGE[2], BTN_ORANGE[3],
+            function() LootyMasterLoot:StartReRoll(item.itemKey) end)
+        local endBtn  = LootyMakeButton(panel, "End", 50, BTN_H,
+            BTN_RED[1], BTN_RED[2], BTN_RED[3],
+            function() LootyMasterLoot:EndRoll(item.itemKey) end)
+        row:Place(rerollBtn, panel, LOOTY_PANEL_PADDING, atY)
+        row:Place(endBtn,   panel, LOOTY_PANEL_PADDING, atY)
+        rerollBtn:Show(); endBtn:Show()
+
     elseif action == "ml_rolling" then
         local endBtn  = LootyMakeButton(panel, "End Roll", 65, BTN_H,
             BTN_RED[1], BTN_RED[2], BTN_RED[3],
@@ -131,6 +181,26 @@ local function RenderActionButtons(panel, layout, item, action)
         local greyBtn = LootyMakeDisabledButton(panel, "Rolled", 55, BTN_H)
         row:Place(greyBtn, panel, LOOTY_PANEL_PADDING, atY)
         greyBtn:Show()
+
+    elseif action == "raider_reroll" then
+        local rerollBtn = LootyMakeButton(panel, "Re-roll!", 65, BTN_H,
+            BTN_ORANGE[1], BTN_ORANGE[2], BTN_ORANGE[3],
+            function() RandomRoll(1, 100) end)
+        row:Place(rerollBtn, panel, LOOTY_PANEL_PADDING, atY)
+        rerollBtn:Show()
+
+    elseif action == "raider_rerolled" then
+        local greyBtn = LootyMakeDisabledButton(panel, "Re-rolled", 65, BTN_H)
+        row:Place(greyBtn, panel, LOOTY_PANEL_PADDING, atY)
+        greyBtn:Show()
+
+    elseif action == "raider_not_eligible" then
+        local greyBtn = LootyMakeDisabledButton(panel, "Tied out", 65, BTN_H)
+        row:Place(greyBtn, panel, LOOTY_PANEL_PADDING, atY)
+        greyBtn:Show()
+
+    elseif action == "raider_tie_pending" then
+        -- No button — status line already explains the state
     end
 
     layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
@@ -172,6 +242,7 @@ local function RenderRollList(panel, layout, item, alpha)
         local pName = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         pName:SetPoint("LEFT", rIcon, "RIGHT", 3, 0)
         pName:SetPoint("RIGHT", panel, "RIGHT", -LOOTY_PANEL_PADDING, 0)
+        pName:SetJustifyH("LEFT")
         pName:SetText(entry.name .. " (" .. tostring(entry.value or "?") .. ")")
         if isWin then
             pName:SetTextColor(0.2 * alpha, 1.0 * alpha, 0.2 * alpha)
@@ -187,7 +258,7 @@ local function RenderRerollWarning(panel, layout, item, alpha)
     if item:RerollCount() == 0 then return end
     local names = {}
     for playerName, info in pairs(item.rerolls) do
-        table.insert(names, playerName .. "(" .. (info.value or "?") .. ")")
+        table.insert(names, playerName .. " " .. "(" .. (info.value or "?") .. ")")
     end
     local warnTxt, warnH = LootyMakeLabel(panel, "Re-rolls: " .. table.concat(names, ", "),
         1.0 * alpha, 0.4 * alpha, 0.2 * alpha, layout.y, nil, "GameFontHighlightSmall")
@@ -343,8 +414,9 @@ function UpdateMasterLootTimers(content)
             local duration  = child._mlDuration or LootyMasterLoot.rollDuration
             local remaining = math.max(0, duration - elapsed)
             local pct       = remaining / duration
+            local barW      = child:GetWidth() - LOOTY_PANEL_PADDING * 2
 
-            child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+            child._mlTimerBar:SetWidth(barW * pct)
 
             if pct < 0.25 then
                 child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
@@ -370,7 +442,8 @@ function LootyUpdateMasterLootTimer(itemKey, remaining)
         if child._mlItemKey == itemKey and child._mlTimerBar and child._mlTimerBg then
             local duration = child._mlDuration or LootyMasterLoot.rollDuration
             local pct      = remaining / duration
-            child._mlTimerBar:SetWidth(child._mlTimerBg:GetWidth() * pct)
+            local barW     = child:GetWidth() - LOOTY_PANEL_PADDING * 2
+            child._mlTimerBar:SetWidth(barW * pct)
 
             if pct < 0.25 then
                 child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
