@@ -2,7 +2,7 @@
 ## Title: Looty
 ## Notes: Tracks group loot and master loot rolls in a compact window.
 ## Author: Ravelo
-## Version: 2.0.1
+## Version: 2.1.0
 ## SavedVariables: Looty_SavedVars
 
 ## Load order:
