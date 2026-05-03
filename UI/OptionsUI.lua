@@ -30,6 +30,16 @@ function RefreshOptionsTab(content, frame)
     local isRaider = LootyMasterLoot and LootyMasterLoot:IsRaider()
     local syncOn   = Looty.db and Looty.db.syncBlizzardThreshold
 
+    -- Version label (top-right aligned)
+    local version = GetAddOnMetadata("Looty", "Version") or ""
+    if version ~= "" then
+        local verLbl = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        verLbl:SetPoint("TOPRIGHT", content, "TOPRIGHT", -LOOTY_CONTENT_MARGIN, yOffset)
+        verLbl:SetText("Looty v" .. version)
+        verLbl:SetTextColor(0.4, 0.4, 0.4)
+        yOffset = yOffset - 18
+    end
+
     -- Section title
     local title, tH = LootyMakeLabel(content, "Master Loot Filters",
         0.7, 0.7, 0.7, yOffset)

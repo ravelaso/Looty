@@ -811,11 +811,8 @@ function MasterLoot:CreateTimer(itemKey)
             local remaining = MasterLoot.rollDuration - (GetTime() - item.rollStart)
             if remaining <= 0 then
                 MasterLoot:EndRoll(self.itemKey)
-            else
-                if LootyUI and LootyUI.UpdateMasterLootTimer then
-                    LootyUI:UpdateMasterLootTimer(self.itemKey, remaining)
-                end
             end
+            -- Timer bar updates handled by global UpdateTimers (250ms tick)
         else
             self:Hide()
         end
