@@ -266,9 +266,15 @@ function BuildRollPanel(panel, rollData, yOffset, opts)
     -- Item header — returns y start for the cursor
     local layout = LootyVLayout(panel, LootyMakeItemHeader(panel, rollData, iconH, alpha), 0)
 
-    -- Timer bar (active rolls only)
+    -- Timer bar (active rolls only — preserve existing bar across refreshes)
     if not isHistory and not rollData.completed then
-        LootyMakeTimerBar(panel, layout, rollData.duration, rollData.startTime, "_gl", rollData.rollID)
+        if not panel._glTimerBar then
+            LootyMakeTimerBar(panel, layout, rollData.duration, rollData.startTime, "_gl", rollData.rollID)
+        else
+            -- Timer already exists — just advance layout past it
+            local barH = 5
+            layout:Advance(barH + 4)
+        end
     end
 
     -- Winner banner
@@ -383,6 +389,11 @@ function UpdateGroupLootTimers()
         if panel:IsShown() and panel._glTimerBar and panel._glRollStart then
             local elapsed   = GetTime() - panel._glRollStart
             local remaining = math.max(0, panel._glDuration - elapsed)
+            -- Debug: catch invalid state
+            if remaining > 9999 and Looty and Looty.db and Looty.db.debug then
+                Looty:Print(string.format("[TimerDebug] rollID=%s elapsed=%.1f remaining=%.1f duration=%.1f rollStart=%.1f getTime=%.1f",
+                    tostring(panel._glRollID), elapsed, remaining, panel._glDuration or 0, panel._glRollStart or 0, GetTime()))
+            end
             local pct       = remaining / panel._glDuration
 
             panel._glTimerBar:SetWidth(panel._glTimerBg:GetWidth() * pct)

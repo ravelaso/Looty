@@ -145,9 +145,9 @@ function addon:CHAT_MSG_SYSTEM(event, message)
 end
 
 function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
-    if self.db and self.db.debug then
-        addon:Print(string.format("[ADDON] prefix=%s dist=%s sender=%s msg=%.40s",
-            tostring(prefix), tostring(distribution), tostring(sender), tostring(message)))
+    if self.db and self.db.debug and prefix == "LOOTY" then
+        addon:Print(string.format("[ADDON] prefix=%s event=%s dist=%s sender=%s msg=%.40s",
+            tostring(prefix), tostring(event), tostring(distribution), tostring(sender), tostring(message)))
     end
     if prefix ~= "LOOTY" then return end
     LootyMasterLoot:OnAddonMessage(prefix, message, distribution, sender)
