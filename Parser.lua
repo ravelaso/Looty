@@ -106,6 +106,20 @@ function Parser:ProcessMessage(message)
         Looty:Print("[PARSE] " .. message)
     end
 
+    -- 0. "Everyone passed on [Item]" — special case, no real player
+    local everyoneItem = string.match(message, "^Everyone passed on%s*:?%s*(.+)$")
+                     or string.match(message, "^Everyone automatically passed on%s*:?%s*(.+)$")
+    if everyoneItem then
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[PARSE] EVERYONE PASSED: " .. everyoneItem)
+        end
+        local rollID = FindRollByItem(everyoneItem)
+        if rollID then
+            LootyGroupLoot:FinalizeRoll(rollID)
+        end
+        return
+    end
+
     -- 1. Roll result (type + value + item + player)
     local rollType, value, itemName, playerName = self:ParseRollResult(message)
     if rollType and value and playerName then

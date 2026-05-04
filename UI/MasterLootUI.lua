@@ -6,6 +6,54 @@
 -- MasterLootUI references Looty globally at call time (never at load time)
 
 -- ============================================================
+-- ---- Frame pool ----
+-- ============================================================
+-- Panels keyed by itemKey. Prevents frame accumulation on content.
+
+local panelPool = {}  -- { [itemKey] = panelFrame }
+
+-- Reset a reused panel: clear all children, regions, and custom fields.
+local function ResetPanel(panel)
+    for _, child in ipairs({ panel:GetChildren() }) do
+        child:Hide(); child:ClearAllPoints()
+    end
+    for _, region in ipairs({ panel:GetRegions() }) do
+        region:Hide()
+    end
+    panel._mlTimerBg   = nil
+    panel._mlTimerBar  = nil
+    panel._mlTimerText = nil
+    panel._mlRollStart = nil
+    panel._mlDuration  = nil
+    panel._mlItemKey   = nil
+end
+
+-- Acquire a panel for an itemKey. Returns an existing (reset) or new panel.
+local function AcquirePanel(itemKey, content)
+    local panel = panelPool[itemKey]
+    if panel then
+        ResetPanel(panel)
+        panel:SetParent(content)
+    else
+        panel = CreateFrame("Frame", nil, content)
+        panelPool[itemKey] = panel
+    end
+    panel:Show()
+    return panel
+end
+
+-- Release panels not in the current active set.
+local function ReleaseUnused(activeKeys)
+    for itemKey, panel in pairs(panelPool) do
+        if not activeKeys[itemKey] then
+            panel:Hide()
+            panel:ClearAllPoints()
+            panel:SetParent(nil)
+        end
+    end
+end
+
+-- ============================================================
 -- ---- Determine what action buttons a player can take ----
 -- ============================================================
 -- Returns one of:
@@ -206,18 +254,31 @@ end
 -- ---- BuildMasterItemPanel ----
 -- ============================================================
 
--- Builds one item card for the Master tab.
+-- Builds one item card into a pre-acquired panel.
 -- opts: { isDone = bool, isML = bool }
 -- Returns: panel frame, total height.
-function BuildMasterItemPanel(content, item, itemKey, yOffset, opts)
+function BuildMasterItemPanel(panel, item, itemKey, yOffset, opts)
     opts = opts or {}
     local isDone = opts.isDone or item:IsDone()
     local isML   = opts.isML   or LootyMasterLoot:IsML()
     local alpha  = isDone and 0.5 or 1.0
     local iconH  = LOOTY_ICON_SIZE - 4
+    local contentWidth = panel:GetParent():GetWidth()
 
-    local panel  = LootyMakePanel(content, isDone and 0.2 or 0.6)
-    panel:SetWidth(content:GetWidth())
+    panel:SetWidth(contentWidth)
+
+    -- Background + border (LootyMakePanel inline)
+    LootyColorTex(panel, "BACKGROUND", 0.12, 0.12, 0.12, isDone and 0.2 or 0.6):SetAllPoints(panel)
+    local function border(pt1, pt2, isH)
+        local t = LootyColorTex(panel, "BORDER", 0.20, 0.20, 0.20, 0.5)
+        t:SetPoint(pt1, panel, pt1, 0, 0)
+        t:SetPoint(pt2, panel, pt2, 0, 0)
+        if isH then t:SetHeight(1) else t:SetWidth(1) end
+    end
+    border("TOPLEFT",    "TOPRIGHT",    true)
+    border("BOTTOMLEFT", "BOTTOMRIGHT", true)
+    border("TOPLEFT",    "BOTTOMLEFT",  false)
+    border("TOPRIGHT",   "BOTTOMRIGHT", false)
 
     -- Item header (icon, quality border, name, tooltip)
     -- LootyMakeItemHeader returns the y cursor start (below the icon row)
@@ -235,8 +296,8 @@ function BuildMasterItemPanel(content, item, itemKey, yOffset, opts)
     -- Top padding is already embedded in LootyMakeItemHeader's starting Y.
     local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)
-    panel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
-    panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+    panel:SetPoint("TOPLEFT",  panel:GetParent(), "TOPLEFT",  0, yOffset)
+    panel:SetPoint("TOPRIGHT", panel:GetParent(), "TOPRIGHT", 0, yOffset)
 
     return panel, totalH
 end
@@ -268,13 +329,18 @@ function RefreshMasterLootTab(content, frame)
         end
     end
 
+    -- Track which panels are currently needed
+    local activeKeys = {}
+
     -- ---- Active items ----
     local mlCount = 0
     if session then
         local activeItems = session:GetActiveItems()
         mlCount = #activeItems
         for _, item in ipairs(activeItems) do
-            local _, h = BuildMasterItemPanel(content, item, item.itemKey, yOffset, { isML = isML })
+            activeKeys[item.itemKey] = true
+            local panel = AcquirePanel(item.itemKey, content)
+            local _, h = BuildMasterItemPanel(panel, item, item.itemKey, yOffset, { isML = isML })
             yOffset = yOffset - h - 4
         end
     end
@@ -299,7 +365,9 @@ function RefreshMasterLootTab(content, frame)
             yOffset = yOffset - lblH
 
             for _, item in ipairs(doneItems) do
-                local _, h = BuildMasterItemPanel(content, item, item.itemKey, yOffset,
+                activeKeys[item.itemKey] = true
+                local panel = AcquirePanel(item.itemKey, content)
+                local _, h = BuildMasterItemPanel(panel, item, item.itemKey, yOffset,
                     { isDone = true, isML = isML })
                 yOffset = yOffset - h - 4
             end
@@ -307,7 +375,6 @@ function RefreshMasterLootTab(content, frame)
     end
 
     -- ---- Empty state ----
-    -- Only shown when there are truly no items at all (no active AND no done).
     local doneCount = session and #session:GetDoneItems() or 0
     if mlCount == 0 and doneCount == 0 then
         local emptyY = yOffset - 16
@@ -328,6 +395,9 @@ function RefreshMasterLootTab(content, frame)
         frame.tabs.master.text:SetText("Master: " .. mlCount)
     end
 
+    -- Release panels no longer in use
+    ReleaseUnused(activeKeys)
+
     return yOffset
 end
 
@@ -335,60 +405,29 @@ end
 -- ---- Timer update for Master Loot (called from UpdateTimers) ----
 -- ============================================================
 
-function UpdateMasterLootTimers(content)
-    local session = LootyMasterLoot:GetSession()
-    if not session then return end
-
-    for _, child in ipairs({ content:GetChildren() }) do
-        if child._mlItemKey and child._mlTimerBar and child._mlRollStart then
-            local elapsed   = GetTime() - child._mlRollStart
-            local duration  = child._mlDuration or LootyMasterLoot.rollDuration
+function UpdateMasterLootTimers()
+    for _, panel in pairs(panelPool) do
+        if panel:IsShown() and panel._mlItemKey and panel._mlTimerBar and panel._mlRollStart then
+            local elapsed   = GetTime() - panel._mlRollStart
+            local duration  = panel._mlDuration or LootyMasterLoot.rollDuration
             local remaining = math.max(0, duration - elapsed)
             local pct       = remaining / duration
-            local barW      = child:GetWidth() - LOOTY_PANEL_PADDING * 2
+            local barW      = panel:GetWidth() - LOOTY_PANEL_PADDING * 2
 
-            child._mlTimerBar:SetWidth(barW * pct)
-
-            if pct < 0.25 then
-                child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
-            elseif pct < 0.5 then
-                child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
-            else
-                child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
-            end
-
-            if child._mlTimerText then
-                child._mlTimerText:SetText(string.format("%d:%02d",
-                    math.floor(remaining / 60), math.floor(remaining % 60)))
-            end
-        end
-    end
-end
-
--- ---- UpdateMasterLootTimer (called from MasterLoot timer callback) ----
-
-function LootyUpdateMasterLootTimer(itemKey, remaining)
-    if not LootyFrame or not LootyFrame.content then return end
-    for _, child in ipairs({ LootyFrame.content:GetChildren() }) do
-        if child._mlItemKey == itemKey and child._mlTimerBar and child._mlTimerBg then
-            local duration = child._mlDuration or LootyMasterLoot.rollDuration
-            local pct      = remaining / duration
-            local barW     = child:GetWidth() - LOOTY_PANEL_PADDING * 2
-            child._mlTimerBar:SetWidth(barW * pct)
+            panel._mlTimerBar:SetWidth(barW * pct)
 
             if pct < 0.25 then
-                child._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                panel._mlTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
             elseif pct < 0.5 then
-                child._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                panel._mlTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
             else
-                child._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                panel._mlTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
             end
 
-            if child._mlTimerText then
-                child._mlTimerText:SetText(string.format("%d:%02d",
+            if panel._mlTimerText then
+                panel._mlTimerText:SetText(string.format("%d:%02d",
                     math.floor(remaining / 60), math.floor(remaining % 60)))
             end
-            break
         end
     end
 end

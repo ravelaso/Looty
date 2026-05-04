@@ -16,6 +16,61 @@ local ROLL_SECTIONS = { "need", "greed", "disenchant", "pass" }
 local expandedSections = {}
 
 -- ============================================================
+-- ---- Frame pool ----
+-- ============================================================
+-- Panels keyed by rollID. Prevents frame accumulation on content.
+-- In WoW, frames cannot be destroyed — we hide and reparent them
+-- instead of letting them pile up as children of content.
+
+local panelPool = {}  -- { [rollID] = panelFrame }
+
+-- Reset a reused panel: clear all children, regions, and custom fields.
+local function ResetPanel(panel)
+    for _, child in ipairs({ panel:GetChildren() }) do
+        child:Hide(); child:ClearAllPoints()
+    end
+    for _, region in ipairs({ panel:GetRegions() }) do
+        region:Hide()
+    end
+    panel._glTimerBg   = nil
+    panel._glTimerBar  = nil
+    panel._glTimerText = nil
+    panel._glRollStart = nil
+    panel._glDuration  = nil
+    panel._glRollID    = nil
+    panel._expandedType = nil
+    panel:SetScript("OnEnter", nil)
+    panel:SetScript("OnLeave", nil)
+    panel:SetScript("OnMouseUp", nil)
+end
+
+-- Acquire a panel for a rollID. Returns an existing (reset) or new panel.
+local function AcquirePanel(rollID, content)
+    local panel = panelPool[rollID]
+    if panel then
+        ResetPanel(panel)
+        panel:SetParent(content)
+    else
+        panel = CreateFrame("Frame", nil, content)
+        panelPool[rollID] = panel
+    end
+    panel:Show()
+    return panel
+end
+
+-- Release panels not in the current active set.
+-- Hides them and removes from content's child hierarchy.
+local function ReleaseUnused(activeKeys)
+    for rollID, panel in pairs(panelPool) do
+        if not activeKeys[rollID] then
+            panel:Hide()
+            panel:ClearAllPoints()
+            panel:SetParent(nil)
+        end
+    end
+end
+
+-- ============================================================
 -- ---- Roll panel internals ----
 -- ============================================================
 
@@ -183,25 +238,43 @@ end
 -- ---- BuildRollPanel ----
 -- ============================================================
 
--- Builds a single roll card.
+-- Builds a single roll card into a pre-acquired panel.
 -- opts: { isHistory = bool }
 -- Returns: panel frame, total panel height.
-function BuildRollPanel(content, rollData, yOffset, opts)
+function BuildRollPanel(panel, rollData, yOffset, opts)
     opts = opts or {}
     local isHistory    = opts.isHistory or false
     local iconH        = isHistory and 28 or (LOOTY_ICON_SIZE - 4)
     local alpha        = isHistory and 0.6 or 1.0
-    local contentWidth = content:GetWidth()
+    local contentWidth = panel:GetParent():GetWidth()
 
-    local panel  = LootyMakePanel(content, isHistory and 0.3 or 0.6)
     panel:SetWidth(contentWidth)
+
+    -- Background + border (LootyMakePanel inline — panel is pre-acquired)
+    LootyColorTex(panel, "BACKGROUND", 0.12, 0.12, 0.12, isHistory and 0.2 or 0.6):SetAllPoints(panel)
+    local function border(pt1, pt2, isH)
+        local t = LootyColorTex(panel, "BORDER", 0.20, 0.20, 0.20, 0.5)
+        t:SetPoint(pt1, panel, pt1, 0, 0)
+        t:SetPoint(pt2, panel, pt2, 0, 0)
+        if isH then t:SetHeight(1) else t:SetWidth(1) end
+    end
+    border("TOPLEFT",    "TOPRIGHT",    true)
+    border("BOTTOMLEFT", "BOTTOMRIGHT", true)
+    border("TOPLEFT",    "BOTTOMLEFT",  false)
+    border("TOPRIGHT",   "BOTTOMRIGHT", false)
 
     -- Item header — returns y start for the cursor
     local layout = LootyVLayout(panel, LootyMakeItemHeader(panel, rollData, iconH, alpha), 0)
 
-    -- Timer bar (active rolls only)
+    -- Timer bar (active rolls only — preserve existing bar across refreshes)
     if not isHistory and not rollData.completed then
-        LootyMakeTimerBar(panel, layout, rollData.duration, rollData.startTime, "_gl", rollData.rollID)
+        if not panel._glTimerBar then
+            LootyMakeTimerBar(panel, layout, rollData.duration, rollData.startTime, "_gl", rollData.rollID)
+        else
+            -- Timer already exists — just advance layout past it
+            local barH = 5
+            layout:Advance(barH + 4)
+        end
     end
 
     -- Winner banner
@@ -228,8 +301,8 @@ function BuildRollPanel(content, rollData, yOffset, opts)
     local totalH = -layout.y + LOOTY_PANEL_PADDING
     panel:SetHeight(totalH)
 
-    panel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
-    panel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+    panel:SetPoint("TOPLEFT",  panel:GetParent(), "TOPLEFT",  0, yOffset)
+    panel:SetPoint("TOPRIGHT", panel:GetParent(), "TOPRIGHT", 0, yOffset)
 
     return panel, totalH
 end
@@ -247,9 +320,14 @@ function RefreshGroupLootTab(content, frame)
     local activeRolls    = LootyGroupLoot:GetAllActiveRolls()
     local completedRolls = LootyGroupLoot:GetCompletedRolls()
 
+    -- Track which panels are currently needed
+    local activeKeys = {}
+
     -- Active rolls
     for _, rollData in ipairs(activeRolls) do
-        local _, h = BuildRollPanel(content, rollData, yOffset, { isHistory = false })
+        activeKeys[rollData.rollID] = true
+        local panel = AcquirePanel(rollData.rollID, content)
+        local _, h = BuildRollPanel(panel, rollData, yOffset, { isHistory = false })
         yOffset = yOffset - h - 6
     end
 
@@ -276,7 +354,9 @@ function RefreshGroupLootTab(content, frame)
         yOffset = yOffset - lblH
 
         for _, rollData in ipairs(completedRolls) do
-            local _, h = BuildRollPanel(content, rollData, yOffset, { isHistory = true })
+            activeKeys[rollData.rollID] = true
+            local panel = AcquirePanel(rollData.rollID, content)
+            local _, h = BuildRollPanel(panel, rollData, yOffset, { isHistory = true })
             yOffset = yOffset - h - 4
         end
     end
@@ -294,6 +374,9 @@ function RefreshGroupLootTab(content, frame)
         frame.tabs.grouplot.text:SetText("Group: " .. total)
     end
 
+    -- Release panels no longer in use
+    ReleaseUnused(activeKeys)
+
     return yOffset
 end
 
@@ -301,25 +384,30 @@ end
 -- ---- Timer update (called from UpdateTimers) ----
 -- ============================================================
 
-function UpdateGroupLootTimers(content)
-    for _, child in ipairs({ content:GetChildren() }) do
-        if child._glTimerBar and child._glRollStart then
-            local elapsed   = GetTime() - child._glRollStart
-            local remaining = math.max(0, child._glDuration - elapsed)
-            local pct       = remaining / child._glDuration
+function UpdateGroupLootTimers()
+    for _, panel in pairs(panelPool) do
+        if panel:IsShown() and panel._glTimerBar and panel._glRollStart then
+            local elapsed   = GetTime() - panel._glRollStart
+            local remaining = math.max(0, panel._glDuration - elapsed)
+            -- Debug: catch invalid state
+            if remaining > 9999 and Looty and Looty.db and Looty.db.debug then
+                Looty:Print(string.format("[TimerDebug] rollID=%s elapsed=%.1f remaining=%.1f duration=%.1f rollStart=%.1f getTime=%.1f",
+                    tostring(panel._glRollID), elapsed, remaining, panel._glDuration or 0, panel._glRollStart or 0, GetTime()))
+            end
+            local pct       = remaining / panel._glDuration
 
-            child._glTimerBar:SetWidth(child._glTimerBg:GetWidth() * pct)
+            panel._glTimerBar:SetWidth(panel._glTimerBg:GetWidth() * pct)
 
             if pct < 0.25 then
-                child._glTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
+                panel._glTimerBar:SetVertexColor(0.9, 0.2, 0.15, 0.8)
             elseif pct < 0.5 then
-                child._glTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
+                panel._glTimerBar:SetVertexColor(0.9, 0.7, 0.1, 0.8)
             else
-                child._glTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
+                panel._glTimerBar:SetVertexColor(0.4, 0.4, 0.4, 0.8)
             end
 
-            if child._glTimerText then
-                child._glTimerText:SetText(string.format("%d:%02d",
+            if panel._glTimerText then
+                panel._glTimerText:SetText(string.format("%d:%02d",
                     math.floor(remaining / 60), math.floor(remaining % 60)))
             end
         end

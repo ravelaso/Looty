@@ -340,15 +340,10 @@ function UI:UpdateTimers()
     local content = frame.content
 
     if currentTab == "grouplot" then
-        UpdateGroupLootTimers(content)
+        UpdateGroupLootTimers()
     elseif currentTab == "master" then
-        UpdateMasterLootTimers(content)
+        UpdateMasterLootTimers()
     end
-end
-
--- Called from MasterLoot.CreateTimer callback
-function UI:UpdateMasterLootTimer(itemKey, remaining)
-    LootyUpdateMasterLootTimer(itemKey, remaining)
 end
 
 -- ============================================================

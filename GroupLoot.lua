@@ -109,6 +109,38 @@ LootyLootRoll = LootRoll
 local GroupLoot = {}
 LootyGroupLoot = GroupLoot
 
+-- Safety net: poll completed rolls in case chat messages are missed.
+-- WoW 3.3.5 has no event for "roll timer expired" — we detect it by
+-- checking if WoW no longer knows about the roll via GetLootRollItemInfo.
+local safetyFrame = CreateFrame("Frame")
+safetyFrame:Hide()
+safetyFrame.elapsed = 0
+safetyFrame:SetScript("OnUpdate", function(self, elapsed)
+    self.elapsed = self.elapsed + elapsed
+    if self.elapsed < 3 then return end  -- poll every 3 seconds
+    self.elapsed = 0
+
+    for rollID, roll in pairs(GroupLoot.activeRolls) do
+        if roll.completed and not roll._safetyChecked then
+            -- If WoW no longer knows about this roll, the timer expired
+            -- and the chat message was likely missed.
+            local texture = GetLootRollItemInfo(rollID)
+            if not texture then
+                roll._safetyChecked = true
+                if Looty.db and Looty.db.debug then
+                    Looty:Print("[GroupLoot] Safety net: finalizing roll " .. rollID .. " (" .. roll.name .. ")")
+                end
+                local winner = roll:DetermineWinner()
+                roll.winner = winner
+                GroupLoot:FinalizeRoll(rollID)
+            end
+        end
+    end
+
+    -- Stop polling if no active rolls remain
+    if not next(GroupLoot.activeRolls) then self:Hide() end
+end)
+
 -- Active rolls keyed by rollID (numeric, from WoW API)
 GroupLoot.activeRolls = {}
 
@@ -141,10 +173,13 @@ function GroupLoot:StartRoll(rollID, duration)
           canNeed, canGreed, canDisenchant = GetLootRollItemInfo(rollID)
     if not name then return end
 
+    -- Convert milliseconds to seconds (WoW 3.3.5 API passes ms)
+    local durationSec = (duration or 90000) / 1000
+
     local link = GetLootRollItemLink(rollID)
     self.activeRolls[rollID] = LootRoll.new(
         rollID, name, link, texture, count, quality,
-        bindOnPickUp, canNeed, canGreed, canDisenchant, duration
+        bindOnPickUp, canNeed, canGreed, canDisenchant, durationSec
     )
 
     Looty:Print("New roll: " .. name)
@@ -163,6 +198,7 @@ function GroupLoot:MarkCompleted(rollID)
     local roll = self.activeRolls[rollID]
     if roll then
         roll.completed = true
+        safetyFrame:Show()  -- start safety net polling
         LootyUI:Refresh()
     end
 end
@@ -171,6 +207,9 @@ end
 function GroupLoot:FinalizeRoll(rollID)
     local roll = self.activeRolls[rollID]
     if not roll then return end
+
+    -- Cancel safety net check for this roll (chat was received)
+    if roll then roll._safetyChecked = true end
 
     if LootyUI and LootyUI.ClearExpandedState then
         LootyUI:ClearExpandedState(rollID)
@@ -203,7 +242,7 @@ function GroupLoot:RecordChoice(rollID, playerName, rollType, value)
             Looty:Print(string.format("[GroupLoot] RecordChoice OK — %s type=%s val=%s on %s",
                 playerName, rollType, tostring(value), roll.name))
         end
-        LootyUI:Refresh()
+        -- Don't refresh — let timer update naturally, avoids timer bar flicker
     end
     return ok
 end
