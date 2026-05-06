@@ -29,6 +29,9 @@ function RefreshOptionsTab(content, frame)
     local isML     = LootyMasterLoot and LootyMasterLoot:IsML()
     local isRaider = LootyMasterLoot and LootyMasterLoot:IsRaider()
     local syncOn   = Looty.db and Looty.db.syncBlizzardThreshold
+    local glOn     = Looty.db and Looty.db.groupLootEnabled
+    local mlOn     = Looty.db and Looty.db.masterLootEnabled
+    local autoOpen = Looty.db and Looty.db.autoOpenOnGroupRoll
 
     -- Version label (top-right aligned)
     local version = GetAddOnMetadata("Looty", "Version") or ""
@@ -40,12 +43,111 @@ function RefreshOptionsTab(content, frame)
         yOffset = yOffset - 18
     end
 
-    -- Section title
-    local title, tH = LootyMakeLabel(content, "Master Loot Filters",
-        0.7, 0.7, 0.7, yOffset)
-    yOffset = yOffset - tH - 2
+    -- ============================================================
+    -- ---- Group Options Panel ----
+    -- ============================================================
 
-    -- ---- Quality Filter Panel ----
+    local glTitle, glTH = LootyMakeLabel(content, "Group Options",
+        0.7, 0.7, 0.7, yOffset)
+    yOffset = yOffset - glTH - 2
+
+    local glPanel = LootyMakePanel(content, 0.6)
+    glPanel:SetWidth(content:GetWidth())
+
+    local glLayout = LootyVLayout(glPanel, -(LOOTY_PANEL_PADDING + 14), 0)
+
+    local togW = glPanel:GetWidth() - LOOTY_PANEL_PADDING * 2
+    local togH = 24
+
+    -- Group Loot enabler
+    LootyMakeToggleButton(glPanel, glOn,
+        "Group Loot: ENABLED — click to disable",
+        "Group Loot: DISABLED — click to enable",
+        function(newChecked)
+            if Looty.db then
+                Looty.db.groupLootEnabled = newChecked
+                Looty:Print("Group Loot " .. (newChecked and "enabled" or "disabled"))
+            end
+            LootyUI:Refresh()
+        end, glLayout.y)
+    glLayout:Advance(togH + 6)
+
+    -- Auto-open toggle (only visible when Group Loot is enabled)
+    if glOn then
+        LootyMakeToggleButton(glPanel, autoOpen,
+            "Auto-open window on group roll: ON",
+            "Auto-open window on group roll: OFF",
+            function(newChecked)
+                if Looty.db then
+                    Looty.db.autoOpenOnGroupRoll = newChecked
+                    Looty:Print("Auto-open on group roll " .. (newChecked and "enabled" or "disabled"))
+                end
+                LootyUI:Refresh()
+            end, glLayout.y)
+        glLayout:Advance(togH + 6)
+    end
+
+    local glNote, glNH = LootyMakeLabel(glPanel,
+        "Disabling Group Loot stops all event processing for that system to save CPU.",
+        0.4, 0.4, 0.4, glLayout.y - 2, nil, "GameFontHighlightSmall")
+    glLayout:Advance(glNH)
+
+    local glPanelH = -glLayout.y + LOOTY_PANEL_PADDING
+    glPanel:SetHeight(glPanelH)
+    glPanel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
+    glPanel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+
+    yOffset = yOffset - glPanelH - 8
+
+    -- ============================================================
+    -- ---- Master Options Panel ----
+    -- ============================================================
+
+    local mlTitle, mlTH = LootyMakeLabel(content, "Master Options",
+        0.7, 0.7, 0.7, yOffset)
+    yOffset = yOffset - mlTH - 2
+
+    local mlPanel = LootyMakePanel(content, 0.6)
+    mlPanel:SetWidth(content:GetWidth())
+
+    local mlLayout = LootyVLayout(mlPanel, -(LOOTY_PANEL_PADDING + 14), 0)
+
+    -- Master Loot enabler
+    LootyMakeToggleButton(mlPanel, mlOn,
+        "Master Loot: ENABLED — click to disable",
+        "Master Loot: DISABLED — click to enable",
+        function(newChecked)
+            if Looty.db then
+                Looty.db.masterLootEnabled = newChecked
+                if newChecked and LootyMasterLoot then
+                    LootyMasterLoot:Initialize()
+                end
+                Looty:Print("Master Loot " .. (newChecked and "enabled" or "disabled"))
+            end
+            LootyUI:Refresh()
+        end, mlLayout.y)
+    mlLayout:Advance(togH + 6)
+
+    local mlNote, mlNH = LootyMakeLabel(mlPanel,
+        "Disabling Master Loot stops all event processing for that system to save CPU.",
+        0.4, 0.4, 0.4, mlLayout.y - 2, nil, "GameFontHighlightSmall")
+    mlLayout:Advance(mlNH)
+
+    local mlPanelH = -mlLayout.y + LOOTY_PANEL_PADDING
+    mlPanel:SetHeight(mlPanelH)
+    mlPanel:SetPoint("TOPLEFT",  content, "TOPLEFT",  0, yOffset)
+    mlPanel:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yOffset)
+
+    yOffset = yOffset - mlPanelH - 8
+
+    -- ============================================================
+    -- ---- Master Loot Filters Panel ----
+    -- ============================================================
+
+    local filterTitle, filterTH = LootyMakeLabel(content, "Master Loot Filters",
+        0.7, 0.7, 0.7, yOffset)
+    yOffset = yOffset - filterTH - 2
+
     local panel = LootyMakePanel(content, 0.6)
     panel:SetWidth(content:GetWidth())
 
@@ -68,13 +170,13 @@ function RefreshOptionsTab(content, frame)
     layout:Advance(clH, 8)
 
     -- Toggle button: switches between Manual and Sync modes
-    local togW = panel:GetWidth() - LOOTY_PANEL_PADDING * 2
-    local togH = 24
+    local togW2 = panel:GetWidth() - LOOTY_PANEL_PADDING * 2
+    local togH2 = 24
     local togY = layout.y
 
     if isRaider then
         local togBtn = LootyMakeDisabledButton(panel,
-            "Filter controlled by MasterLooter", togW, togH)
+            "Filter controlled by MasterLooter", togW2, togH2)
         togBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", LOOTY_PANEL_PADDING, togY)
         togBtn:Show()
     else
@@ -96,7 +198,7 @@ function RefreshOptionsTab(content, frame)
             end, togY)
     end
 
-    layout:Advance(togH + 10, 4)
+    layout:Advance(togH2 + 10, 4)
 
     -- Quality tier buttons (only visible in manual mode or for non-synced Raiders)
     local showButtons = not syncOn and not isRaider
@@ -109,10 +211,10 @@ function RefreshOptionsTab(content, frame)
         for _, tier in ipairs(QUALITY_TIERS) do
             local isActive = (tier.id == currentFilter)
             local nc = isActive and { tier.color[1] * 0.4, tier.color[2] * 0.4, tier.color[3] * 0.4 }
-                                  or { 0.15, 0.15, 0.15 }
+                                      or { 0.15, 0.15, 0.15 }
             local hc = { tier.color[1] * 0.5, tier.color[2] * 0.5, tier.color[3] * 0.5 }
             local tc = isActive and { tier.color[1], tier.color[2], tier.color[3] }
-                                  or { 0.5, 0.5, 0.5 }
+                                      or { 0.5, 0.5, 0.5 }
             local btn = LootyMakeButton(panel, string.sub(tier.label, 1, 3), btnW, btnH, nc, hc, tc,
                 function()
                     if Looty.db then
