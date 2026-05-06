@@ -188,9 +188,6 @@ function GroupLoot:StartRoll(rollID, duration)
     if LootyUI.SwitchTab then
         LootyUI:SwitchTab("grouplot")
     end
-    if LootyFrame and not LootyFrame:IsShown() then
-        LootyFrame:Show()
-    end
 end
 
 -- CANCEL_LOOT_ROLL fired: mark completed but keep visible until "won" is parsed.
