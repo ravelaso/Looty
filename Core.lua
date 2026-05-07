@@ -16,6 +16,9 @@ local DEFAULT_SAVED = {
     debug                 = false,
     qualityFilter         = 2,  -- Uncommon (green) minimum by default
     syncBlizzardThreshold = false,
+    groupLootEnabled      = true,
+    masterLootEnabled     = true,
+    autoOpenOnGroupRoll   = false,
 }
 
 addon.db = {}
@@ -63,7 +66,9 @@ function addon:PLAYER_LOGIN()
     LootyRefreshClassCache()
 
     -- Initialize domain modules
-    LootyMasterLoot:Initialize()
+    if self.db.masterLootEnabled then
+        LootyMasterLoot:Initialize()
+    end
 
     -- Restore window position / size.
     -- ClearAllPoints is required before SetPoint — otherwise the new anchor
@@ -113,14 +118,20 @@ end
 -- ============================================================
 
 function addon:START_LOOT_ROLL(event, rollID, duration)
+    if not self.db or not self.db.groupLootEnabled then return end
+    if self.db.autoOpenOnGroupRoll and LootyFrame and not LootyFrame:IsShown() then
+        LootyFrame:Show()
+    end
     LootyGroupLoot:StartRoll(rollID, duration)
 end
 
 function addon:CANCEL_LOOT_ROLL(event, rollID)
+    if not self.db or not self.db.groupLootEnabled then return end
     LootyGroupLoot:MarkCompleted(rollID)
 end
 
 function addon:CHAT_MSG_LOOT(event, message)
+    if not self.db or not self.db.groupLootEnabled then return end
     LootyParser:ProcessMessage(message)
 end
 
@@ -129,22 +140,27 @@ end
 -- ============================================================
 
 function addon:PARTY_LOOT_METHOD_CHANGED()
+    if not self.db or not self.db.masterLootEnabled then return end
     LootyMasterLoot:OnLootMethodChanged()
 end
 
 function addon:LOOT_OPENED()
+    if not self.db or not self.db.masterLootEnabled then return end
     LootyMasterLoot:OnLootOpened()
 end
 
 function addon:LOOT_CLOSED()
+    if not self.db or not self.db.masterLootEnabled then return end
     LootyMasterLoot:OnLootClosed()
 end
 
 function addon:CHAT_MSG_SYSTEM(event, message)
+    if not self.db or not self.db.masterLootEnabled then return end
     LootyParser:ProcessSystemMessage(message)
 end
 
 function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
+    if not self.db or not self.db.masterLootEnabled then return end
     if self.db and self.db.debug and prefix == "LOOTY" then
         addon:Print(string.format("[ADDON] prefix=%s event=%s dist=%s sender=%s msg=%.40s",
             tostring(prefix), tostring(event), tostring(distribution), tostring(sender), tostring(message)))
@@ -154,8 +170,10 @@ function addon:CHAT_MSG_ADDON(event, prefix, message, distribution, sender)
 end
 
 function addon:GROUP_ROSTER_UPDATE()
+    if self.db and self.db.masterLootEnabled then
+        LootyMasterLoot:ResolveRole()
+    end
     LootyRefreshClassCache()
-    LootyMasterLoot:ResolveRole()
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
 end
 
