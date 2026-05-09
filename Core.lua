@@ -52,8 +52,12 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED")
     self:RegisterEvent("LOOT_OPENED")
     self:RegisterEvent("LOOT_CLOSED")
+    self:RegisterEvent("UPDATE_MASTER_LOOT_LIST")
     self:RegisterEvent("CHAT_MSG_SYSTEM")
     self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    -- Award / trade events
+    self:RegisterEvent("TRADE_SHOW")
+    self:RegisterEvent("TRADE_CLOSED")
 
     -- Addon messages (prefix-less in WoW 3.3.5 — RegisterAddonMessagePrefix
     -- was added in 4.1.0; in 3.3.5 CHAT_MSG_ADDON fires unconditionally).
@@ -183,6 +187,21 @@ function addon:GET_ITEM_INFO_RECEIVED(event, itemID, success)
     if success then
         LootyMasterLoot:OnItemInfoReceived(itemID)
     end
+end
+
+function addon:UPDATE_MASTER_LOOT_LIST()
+    if not self.db or not self.db.masterLootEnabled then return end
+    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+function addon:TRADE_SHOW()
+    if not self.db or not self.db.masterLootEnabled then return end
+    LootyMasterLoot:OnTradeShow()
+end
+
+function addon:TRADE_CLOSED()
+    if not self.db or not self.db.masterLootEnabled then return end
+    LootyMasterLoot:OnTradeClosed()
 end
 
 -- ============================================================
