@@ -335,7 +335,7 @@ function RefreshMasterLootTab(content, frame)
     -- ---- Active items ----
     local mlCount = 0
     if session then
-        local activeItems = session:GetActiveItems()
+        local activeItems = session:GetActiveItems(LootyMasterLoot:GetFilterThreshold())
         mlCount = #activeItems
         for _, item in ipairs(activeItems) do
             activeKeys[item.itemKey] = true
