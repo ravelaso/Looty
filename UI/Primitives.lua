@@ -499,7 +499,176 @@ function LootyMakeEmptyState(parent, text, yOffset)
     return 24
 end
 
--- Item header: icon + quality border + name fontstring + tooltip.
+-- ============================================================
+-- ---- Custom dropdown ----
+-- ============================================================
+-- LootyMakeDropdown — themed dropdown list anchored below an anchor frame.
+--
+-- anchor  — frame to anchor below (BOTTOM of anchor = TOP of dropdown)
+-- entries — array of { name=string, class=string } (class optional)
+-- onSelect — function(name) called when a row is clicked
+--
+-- Returns the dropdown frame (hidden by default).
+-- Call :Show() / :Hide() to toggle, or use LootyToggleDropdown().
+--
+-- Implementation notes:
+--   • Floats on UIParent so it always renders on top.
+--   • Closes itself when the player clicks anywhere outside.
+--   • Each row: 14×14 class icon + player name, hover highlight.
+--   • Max visible rows before scrolling: 12 (keeps it usable in raids).
+
+local DROPDOWN_ROW_H   = 18
+local DROPDOWN_MAX_VIS = 12
+local DROPDOWN_WIDTH   = 160
+local DROPDOWN_PAD     = 6
+
+-- Active dropdown reference — only one open at a time.
+local _activeDropdown = nil
+
+-- Close the currently open dropdown (if any).
+local function CloseActiveDropdown()
+    if _activeDropdown and _activeDropdown:IsShown() then
+        _activeDropdown:Hide()
+    end
+    _activeDropdown = nil
+end
+
+-- Global click-outside detector (created once, reused).
+local _clickCatcher
+local function EnsureClickCatcher()
+    if _clickCatcher then return end
+    _clickCatcher = CreateFrame("Frame", "LootyDropdownClickCatcher", UIParent)
+    _clickCatcher:SetAllPoints(UIParent)
+    _clickCatcher:SetFrameLevel(99)
+    _clickCatcher:EnableMouse(true)
+    _clickCatcher:Hide()
+    _clickCatcher:SetScript("OnMouseDown", function()
+        CloseActiveDropdown()
+        _clickCatcher:Hide()
+    end)
+end
+
+function LootyMakeDropdown(anchor, entries, onSelect)
+    EnsureClickCatcher()
+
+    local rowCount = math.min(#entries, DROPDOWN_MAX_VIS)
+    local totalH   = rowCount * DROPDOWN_ROW_H + DROPDOWN_PAD * 2
+
+    -- Floating frame on UIParent, above everything
+    local dd = CreateFrame("Frame", nil, UIParent)
+    dd:SetSize(DROPDOWN_WIDTH, totalH)
+    dd:SetFrameLevel(101)
+    dd:Hide()
+
+    -- Background
+    local bg = LootyColorTex(dd, "BACKGROUND", 0.08, 0.08, 0.08, 0.97)
+    bg:SetAllPoints(dd)
+
+    -- Border (4 sides, same as LootyMakePanel)
+    local function border(pt1, pt2, isH)
+        local t = LootyColorTex(dd, "BORDER", 0.30, 0.30, 0.30, 0.7)
+        t:SetPoint(pt1, dd, pt1, 0, 0)
+        t:SetPoint(pt2, dd, pt2, 0, 0)
+        if isH then t:SetHeight(1) else t:SetWidth(1) end
+    end
+    border("TOPLEFT",    "TOPRIGHT",    true)
+    border("BOTTOMLEFT", "BOTTOMRIGHT", true)
+    border("TOPLEFT",    "BOTTOMLEFT",  false)
+    border("TOPRIGHT",   "BOTTOMRIGHT", false)
+
+    -- Position: anchored below the anchor frame, left-aligned
+    dd:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+
+    -- Rows
+    for i, entry in ipairs(entries) do
+        if i > DROPDOWN_MAX_VIS then break end
+        local yOff = -DROPDOWN_PAD - (i - 1) * DROPDOWN_ROW_H
+
+        local row = CreateFrame("Button", nil, dd)
+        row:SetSize(DROPDOWN_WIDTH - 2, DROPDOWN_ROW_H)
+        row:SetPoint("TOPLEFT", dd, "TOPLEFT", 1, yOff)
+        row:EnableMouse(true)
+
+        -- Hover background (hidden by default)
+        local hoverBg = LootyColorTex(row, "HIGHLIGHT", 0.25, 0.25, 0.40, 0.5)
+        hoverBg:SetAllPoints(row)
+        hoverBg:Hide()
+
+        -- Class icon
+        local cIcon = row:CreateTexture(nil, "ARTWORK")
+        cIcon:SetSize(14, 14)
+        cIcon:SetPoint("LEFT", row, "LEFT", DROPDOWN_PAD, 0)
+        if entry.class then
+            LootyApplyClassIcon(cIcon, entry.name)
+        else
+            cIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        end
+
+        -- Name label
+        local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("LEFT",  cIcon, "RIGHT", 4, 0)
+        lbl:SetPoint("RIGHT", row,   "RIGHT", -DROPDOWN_PAD, 0)
+        lbl:SetJustifyH("LEFT")
+        lbl:SetText(entry.name)
+        lbl:SetTextColor(0.90, 0.90, 0.90)
+
+        row:SetScript("OnEnter", function()
+            hoverBg:Show()
+            lbl:SetTextColor(1, 1, 1)
+        end)
+        row:SetScript("OnLeave", function()
+            hoverBg:Hide()
+            lbl:SetTextColor(0.90, 0.90, 0.90)
+        end)
+        row:SetScript("OnClick", function()
+            CloseActiveDropdown()
+            _clickCatcher:Hide()
+            onSelect(entry.name)
+        end)
+    end
+
+    -- Public helpers
+    function dd:Open()
+        CloseActiveDropdown()
+        -- Re-anchor in case the panel scrolled
+        self:ClearAllPoints()
+        self:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+        -- Make sure it doesn't go off-screen below
+        local absBottom = self:GetBottom()
+        if absBottom and absBottom < 0 then
+            self:ClearAllPoints()
+            self:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 2)
+        end
+        _activeDropdown = self
+        _clickCatcher:SetFrameLevel(self:GetFrameLevel() - 1)
+        _clickCatcher:Show()
+        self:Show()
+    end
+
+    function dd:Close()
+        CloseActiveDropdown()
+        _clickCatcher:Hide()
+    end
+
+    return dd
+end
+
+-- Convenience: rebuild and open a dropdown each click (entries can change between clicks).
+-- Returns the created dropdown so callers can hold a reference if needed.
+function LootyToggleDropdown(anchor, entries, onSelect)
+    -- If the same anchor's dropdown is already open, close it
+    if _activeDropdown and _activeDropdown:IsShown() then
+        CloseActiveDropdown()
+        _clickCatcher:Hide()
+        return
+    end
+    local dd = LootyMakeDropdown(anchor, entries, onSelect)
+    dd:Open()
+    return dd
+end
+
+-- ============================================================
+-- ---- Item header: icon + quality border + name fontstring + tooltip.
 -- Anchors icon TOPLEFT inside parent at (PANEL_PADDING, -PANEL_PADDING).
 -- Returns yOffset after the header (i.e. the next usable yOffset below the icon).
 function LootyMakeItemHeader(parent, item, iconH, alpha)

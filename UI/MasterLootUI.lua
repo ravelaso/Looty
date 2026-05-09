@@ -57,15 +57,18 @@ end
 -- ---- Determine what action buttons a player can take ----
 -- ============================================================
 -- Returns one of:
---   ML:    "ml_idle" | "ml_rolling" | "ml_tie"
+--   ML:    "ml_idle" | "ml_idle_reroll" | "ml_winner" | "ml_rolling" | "ml_tie"
 --   Raider: "raider_roll" | "raider_rolled" | "raider_reroll" | "raider_rerolled"
 --           "raider_not_eligible" | "raider_tie_pending" | nil
 
 local function GetItemAction(item, isML)
     if item:IsDone() then return nil end
     if isML then
-        if item:IsTied() then return "ml_tie" end
-        return item:IsRolling() and "ml_rolling" or "ml_idle"
+        if item:IsRolling() then return "ml_rolling" end
+        if item:IsTied()    then return "ml_tie" end
+        if item.winner      then return "ml_winner" end
+        if item.wasRolled   then return "ml_idle_reroll" end
+        return "ml_idle"
     else
         local myName = UnitName("player")
         -- Re-roll phase: eligiblePlayers is set and rolling
@@ -146,6 +149,69 @@ local function RenderTimerBar(panel, layout, item)
     LootyMakeTimerBar(panel, layout, LootyMasterLoot.rollDuration, item.rollStart, "_ml", item.itemKey)
 end
 
+-- Build the award button + dropdown arrow for award states.
+-- awardLabel: text for the main button (e.g. "Award: WarriorK" or "Award to...")
+-- winnerName: pre-selected name (nil = no pre-selection)
+-- Returns: awardBtn (the wide label part), height consumed by the award row.
+local function RenderAwardRow(panel, layout, item, awardLabel, winnerName)
+    local BTN_H   = 20
+    local TOP_GAP = 4
+    local pp      = LOOTY_PANEL_PADDING
+    local atY     = layout.y - TOP_GAP
+    local panelW  = panel:GetWidth()
+    local arrowW  = 24   -- width of the ▼ arrow button
+    local mainW   = panelW - pp * 2 - arrowW - 2  -- 2px gap between main+arrow
+
+    -- Color: blue-ish when winner known, muted grey when no winner yet
+    local hasWinner = winnerName ~= nil
+    local NC = hasWinner and { 0.08, 0.20, 0.38 } or { 0.18, 0.18, 0.18 }
+    local HC = hasWinner and { 0.14, 0.32, 0.55 } or { 0.26, 0.26, 0.26 }
+    local TC = hasWinner and { 0.50, 0.80, 1.00 } or { 0.65, 0.65, 0.65 }
+
+    -- Main award button (wide)
+    local mainBtn = LootyMakeButton(panel, awardLabel, mainW, BTN_H, NC, HC, TC,
+        function()
+            if not winnerName then return end  -- need a selection first
+            local err = LootyMasterLoot:AwardToWinner(item.itemKey, winnerName)
+            if err then
+                local msgs = {
+                    ERR_NOT_ML         = "You are not the Master Looter.",
+                    ERR_NO_ITEM        = "Item not found in session.",
+                    ERR_NOT_CANDIDATE  = "Player is not a loot candidate.",
+                    ERR_ITEM_NOT_FOUND = "Item not found in loot window or bags.",
+                    ERR_TARGET_WINNER  = "Target " .. (winnerName or "?") .. " first.",
+                    ERR_OUT_OF_RANGE   = "Move closer to " .. (winnerName or "?") .. ".",
+                }
+                Looty:Print("|cffff6040[Award]|r " .. (msgs[err] or err))
+            end
+        end)
+    mainBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", pp, atY)
+    mainBtn:Show()
+
+    -- Arrow button (▼) opens the roster dropdown
+    local BTN_ARROW_NC = { 0.10, 0.10, 0.10 }
+    local BTN_ARROW_HC = { 0.22, 0.22, 0.22 }
+    local BTN_ARROW_TC = { 0.70, 0.70, 0.70 }
+    local arrowBtn = LootyMakeButton(panel, "v", arrowW, BTN_H,
+        BTN_ARROW_NC, BTN_ARROW_HC, BTN_ARROW_TC, nil)
+    arrowBtn:SetPoint("LEFT", mainBtn, "RIGHT", 2, 0)
+    arrowBtn:Show()
+
+    -- Dropdown: built fresh on each click so the roster is always up to date
+    arrowBtn:SetScript("OnClick", function()
+        local entries = LootyMasterLoot:GetRaidRoster()
+        LootyToggleDropdown(arrowBtn, entries, function(selectedName)
+            -- Re-render the whole panel so the button label + callback update
+            LootyMasterLoot.pendingAward = LootyMasterLoot.pendingAward or {}
+            LootyMasterLoot.pendingAward[item.itemKey] = selectedName
+            if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+        end)
+    end)
+
+    layout:Advance(TOP_GAP + BTN_H + 4)
+    return mainBtn
+end
+
 local function RenderActionButtons(panel, layout, item, action)
     if not action then return end
 
@@ -154,6 +220,8 @@ local function RenderActionButtons(panel, layout, item, action)
     local BOT_GAP = 4
     local row     = LootyHLayout(4)
     local atY     = layout.y - TOP_GAP
+    -- selfManaged: states that call layout:Advance themselves skip the one at the end
+    local selfManaged = false
 
     if action == "ml_idle" then
         local startBtn = LootyMakeButton(panel, "Start Roll", 70, BTN_H,
@@ -165,6 +233,47 @@ local function RenderActionButtons(panel, layout, item, action)
         row:Place(startBtn, panel, LOOTY_PANEL_PADDING, atY)
         row:Place(doneBtn,  panel, LOOTY_PANEL_PADDING, atY)
         startBtn:Show(); doneBtn:Show()
+
+    elseif action == "ml_idle_reroll" then
+        selfManaged = true
+        -- Roll happened before but no winner yet — show Award dropdown + Re-Roll + Done
+        local pending = LootyMasterLoot.pendingAward and LootyMasterLoot.pendingAward[item.itemKey]
+        local awardLabel = pending and ("Award: " .. pending) or "Award to..."
+        RenderAwardRow(panel, layout, item, awardLabel, pending)
+
+        atY = layout.y - TOP_GAP
+        row = LootyHLayout(4)
+        local rerollBtn = LootyMakeButton(panel, "Re-Roll", 65, BTN_H,
+            BTN_GREEN[1], BTN_GREEN[2], BTN_GREEN[3],
+            function() LootyMasterLoot:StartRoll(item.itemKey) end)
+        local doneBtn = LootyMakeButton(panel, "Done", 55, BTN_H,
+            BTN_RED[1], BTN_RED[2], BTN_RED[3],
+            function() LootyMasterLoot:ToggleDone(item.itemKey) end)
+        row:Place(rerollBtn, panel, LOOTY_PANEL_PADDING, atY)
+        row:Place(doneBtn,   panel, LOOTY_PANEL_PADDING, atY)
+        rerollBtn:Show(); doneBtn:Show()
+        layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
+
+    elseif action == "ml_winner" then
+        selfManaged = true
+        -- Winner determined — award button pre-filled, override dropdown still available
+        local pending = LootyMasterLoot.pendingAward and LootyMasterLoot.pendingAward[item.itemKey]
+        local target  = pending or item.winner
+        local awardLabel = "Award: " .. (target or "?")
+        RenderAwardRow(panel, layout, item, awardLabel, target)
+
+        atY = layout.y - TOP_GAP
+        row = LootyHLayout(4)
+        local rerollBtn = LootyMakeButton(panel, "Re-Roll", 65, BTN_H,
+            BTN_GREEN[1], BTN_GREEN[2], BTN_GREEN[3],
+            function() LootyMasterLoot:StartRoll(item.itemKey) end)
+        local doneBtn = LootyMakeButton(panel, "Done", 55, BTN_H,
+            BTN_RED[1], BTN_RED[2], BTN_RED[3],
+            function() LootyMasterLoot:ToggleDone(item.itemKey) end)
+        row:Place(rerollBtn, panel, LOOTY_PANEL_PADDING, atY)
+        row:Place(doneBtn,   panel, LOOTY_PANEL_PADDING, atY)
+        rerollBtn:Show(); doneBtn:Show()
+        layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
 
     elseif action == "ml_tie" then
         local rerollBtn = LootyMakeButton(panel, "Re-roll", 65, BTN_H,
@@ -221,7 +330,9 @@ local function RenderActionButtons(panel, layout, item, action)
         -- No button — status line already explains the state
     end
 
-    layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
+    if not selfManaged then
+        layout:Advance(TOP_GAP + BTN_H + BOT_GAP)
+    end
 end
 
 local function RenderRollList(panel, layout, item, alpha)

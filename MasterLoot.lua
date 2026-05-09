@@ -265,6 +265,11 @@ MasterLoot.rollDuration = 30
 -- Roll timer frame (ML side)
 MasterLoot.rollTimer = nil
 
+-- Award override selection from dropdown: { [itemKey] = playerName }
+-- Set by the UI when the ML picks a non-winner from the dropdown.
+-- Cleared per-item when a new roll starts on that item.
+MasterLoot.pendingAward = {}
+
 -- Pending item info lookups (Raider side): { [itemID] = { [itemKey] = true } }
 MasterLoot.pendingItemInfo = {}
 
@@ -810,6 +815,9 @@ function MasterLoot:StartRoll(itemKey)
 
     if self.rollTimer then self.rollTimer:Hide() end
 
+    -- Clear any manual award override — a new roll resets the selection
+    if self.pendingAward then self.pendingAward[itemKey] = nil end
+
     item.rolling   = true
     item.rollStart = GetTime()
     item.rolls     = {}
@@ -1001,6 +1009,169 @@ end
 function MasterLoot:GetActiveItemCount()
     if not self.session then return 0 end
     return self.session:GetActiveItemCount()
+end
+
+-- ============================================================
+-- ---- Award to winner ----
+-- ============================================================
+
+-- Trade state machine (nil when idle):
+-- { winner=name, bag=n, slot=n, retryTimer=frame|nil }
+MasterLoot.tradeState = nil
+
+-- Returns a sorted list of current raid/party members: { {name, class}, ... }
+function MasterLoot:GetRaidRoster()
+    local list = {}
+    local myName = UnitName("player")
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local name, _, _, _, _, cls = GetRaidRosterInfo(i)
+            if name then
+                table.insert(list, { name = name, class = cls or "WARRIOR" })
+            end
+        end
+    else
+        -- party fallback
+        table.insert(list, { name = myName, class = select(2, UnitClass("player")) or "WARRIOR" })
+        for i = 1, GetNumPartyMembers() do
+            local unit = "party" .. i
+            local n = UnitName(unit)
+            if n then
+                local _, cls = UnitClass(unit)
+                table.insert(list, { name = n, class = cls or "WARRIOR" })
+            end
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+-- Iterates GetMasterLootCandidate(1..40) and returns the index for playerName.
+function MasterLoot:FindCandidateIndex(playerName)
+    for i = 1, 40 do
+        local name = GetMasterLootCandidate(i)
+        if name == playerName then return i end
+    end
+    return nil
+end
+
+-- Searches bags 0..NUM_BAG_SLOTS for an item matching itemLink.
+-- Returns bag, slot or nil.
+function MasterLoot:FindItemInBags(itemLink)
+    if not itemLink or itemLink == "" then return nil end
+    for bag = 0, NUM_BAG_SLOTS do
+        for slot = 1, GetContainerNumSlots(bag) do
+            local link = GetContainerItemLink(bag, slot)
+            if link == itemLink then return bag, slot end
+        end
+    end
+    return nil
+end
+
+-- Single entry point for the Award button.
+-- Returns an error code string on failure, nil on success.
+function MasterLoot:AwardToWinner(itemKey, playerName)
+    if not self:IsML() then return "ERR_NOT_ML" end
+    local item = self.session and self.session:GetItem(itemKey)
+    if not item then return "ERR_NO_ITEM" end
+
+    -- ---- Scenario 1: loot window is open ----
+    if LootFrame and LootFrame:IsShown() then
+        -- Find which loot slot holds this item
+        local lootSlot
+        for i = 1, GetNumLootItems() do
+            if GetLootSlotLink(i) == item.link then
+                lootSlot = i
+                break
+            end
+        end
+        if not lootSlot then
+            -- Loot window open but this specific item is no longer in it
+            -- (already looted) — fall through to bag search
+            goto bags
+        end
+        local candidateIdx = self:FindCandidateIndex(playerName)
+        if not candidateIdx then return "ERR_NOT_CANDIDATE" end
+        GiveMasterLoot(lootSlot, candidateIdx)
+        -- LOOT_SLOT_CLEARED will fire → OnLootSlotCleared marks item done
+        if Looty.db and Looty.db.debug then
+            Looty:Print(string.format("[ML] GiveMasterLoot slot=%d candidate=%d (%s)",
+                lootSlot, candidateIdx, playerName))
+        end
+        return nil
+    end
+
+    -- ---- Scenario 2: item already in ML bags ----
+    ::bags::
+    local bag, slot = self:FindItemInBags(item.link)
+    if not bag then return "ERR_ITEM_NOT_FOUND" end
+
+    -- The winner must be our current target. We'll keep trying via a retry
+    -- timer while the ML moves into trade range (common addon pattern).
+    if not UnitExists("target") or UnitName("target") ~= playerName then
+        return "ERR_TARGET_WINNER"
+    end
+    -- CheckInteractDistance type 2 = trade range
+    if not CheckInteractDistance("target", 2) then
+        return "ERR_OUT_OF_RANGE"
+    end
+    self:StartTradeSequence(playerName, bag, slot)
+    return nil
+end
+
+-- Initiates the trade and arms the state machine.
+function MasterLoot:StartTradeSequence(playerName, bag, slot)
+    self.tradeState = { winner = playerName, bag = bag, slot = slot }
+    InitiateTrade("target")
+    if Looty.db and Looty.db.debug then
+        Looty:Print(string.format("[ML] InitiateTrade → %s (bag=%d slot=%d)", playerName, bag, slot))
+    end
+end
+
+-- Called by Core on TRADE_SHOW.
+function MasterLoot:OnTradeShow()
+    if not self.tradeState then return end
+    local ts = self.tradeState
+    PickupContainerItem(ts.bag, ts.slot)
+    if CursorHasItem() then
+        DropItemOnUnit("target")
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[ML] Item dropped into trade window for " .. ts.winner)
+        end
+    else
+        -- Item wasn't in that slot anymore (edge case)
+        self.tradeState = nil
+        Looty:Print("|cffff4040[Looty]|r Trade: item no longer in bags.")
+    end
+    -- ML accepts manually via Blizzard's trade UI — no AcceptTrade() call here.
+end
+
+-- Called by Core on TRADE_CLOSED.
+function MasterLoot:OnTradeClosed()
+    if not self.tradeState then return end
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[ML] Trade closed — cleaning up trade state.")
+    end
+    self.tradeState = nil
+    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+-- Called by Core on LOOT_SLOT_CLEARED.
+-- Marks the corresponding item as done when the server confirms the award.
+function MasterLoot:OnLootSlotCleared(slot)
+    if not self.session then return end
+    -- Find the item whose slot index matches the cleared slot
+    for _, item in pairs(self.session.items) do
+        if item.slot == slot and not item:IsDone() then
+            item.isDone = true
+            self:SendMessage("ITEM_DONE" .. SEP .. item.itemKey)
+            if Looty.db and Looty.db.debug then
+                Looty:Print("[ML] LOOT_SLOT_CLEARED slot=" .. slot .. " → " .. item.name .. " marked done")
+            end
+            break
+        end
+    end
+    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
 end
 
 -- ============================================================
