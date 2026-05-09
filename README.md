@@ -1,5 +1,8 @@
 # Looty
 
+[![CurseForge](https://img.shields.io/badge/CurseForge-Available-F16436?style=for-the-badge&logo=curseforge&logoColor=white)](https://www.curseforge.com/wow/addons/looty-new)
+[![Warperia](https://img.shields.io/badge/Warperia-Available-8B5CF6?style=for-the-badge)](https://warperia.com/addon-wotlk/looty/)
+
 A lightweight Master Loot & Group Loot addon for **WoW WotLK (3.3.5)**. Tracks rolls in real-time, gives the Master Looter full control over loot distribution, and syncs automatically to other players using the addon — no configuration needed.
 
 ## Screenshots
