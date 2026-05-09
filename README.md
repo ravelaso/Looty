@@ -21,43 +21,39 @@ Whether you're a raid leader managing drops or a player tracking your rolls, Loo
 ## Features
 
 ### Group Loot Tracking
-- **Hooks into Blizzard's native Group Loot system** — captures roll results automatically
-- Sections players by their choice: **Need**, **Greed**, **Disenchant**, **Pass**
-- Accordion panels per roll — expand to see who rolled what value
-- Winner highlighted in green, timer countdown on active rolls
-- Roll history with a "Clear History" button
+- Captures roll results from the native Group Loot system as they happen
+- Organizes players by choice: **Need**, **Greed**, **Disenchant**, **Pass**
+- Expand each roll to see who rolled what value
+- Winner highlighted in green, live countdown on active rolls
+- "Clear History" button to reset
 
 ### Master Loot Control
-- **Full ML dashboard** — see all items from every looted corpse, accumulated across the raid
-- **Start, end, and re-roll** with one click — button label changes to "Re-Roll" after the first roll
-- **Tie detection** — automatically detects ties and offers a re-roll restricted to the tied players
-- **Re-roll protocol** — only tied players can re-roll; raiders see their eligibility status
-- **Award to winner** — one-click item delivery with two automatic scenarios:
-  - Loot window open → `GiveMasterLoot` delivers directly to the winner from the corpse
-  - Item in ML bags → initiates trade automatically using the winner's raid unit (no manual targeting required); item is placed in the trade window automatically
-- **Override dropdown** — ML can award to any raid member regardless of who won, via a themed dropdown roster picker
-- **Mark items done** — manually track what has been distributed
-- **Raider sync** — ML broadcasts item data and roll states to all players using Looty; items are reconstructed on raider clients using `GetItemInfo` with link as immediate fallback
+- View all looted items across the entire raid, accumulated as you clear bosses
+- Start, end, and restart rolls with a single button (label changes to "Re-Roll" after the first roll)
+- Ties detected automatically — only tied players can re-roll
+- **Award items in one click**: automatically gives the item to the winner, whether the loot window is open or the item is in your bags (no manual targeting required)
+- **Override the winner**: choose any raid member from a dropdown if you want to award differently
+- "Done" button to mark distributed items
+- Syncs everything to raiders who also use Looty
 
 ### Quality Filter
-- Six-tier quality filter (Poor → Legendary) to control which items appear in the UI
-- **Sync with Blizzard** — toggle to follow the default WoW loot threshold automatically
-- Filter change applies instantly to all existing items without requiring a re-scan
-- Filter syncs from ML to Raiders via the addon protocol
+- Six-tier filter (Poor → Legendary) to control which items appear in the UI
+- Automatically follows WoW's default loot threshold if you toggle the option
+- Filter applies instantly to existing items — no need to re-open the loot window
+- Syncs automatically from Master Looter to Raiders
 
 ### UI
-- Scrollable, resizable window with drag support
+- Scrollable, resizable window that remembers its position
 - Class icons next to every player name
-- Live timer bars with color-coded urgency (grey → yellow → red)
-- Themed custom dropdown consistent with the addon's dark style
-- Three tabs: **Group** (group loot), **Master** (ML dashboard), **Options** (settings)
+- Timer bars that change color as time runs out (grey → yellow → red)
+- Three tabs: **Group** (your rolls), **Master** (ML dashboard), **Options** (settings)
 
 ## No Sync? No Problem
 
 Looty works in two modes:
 
-1. **Addon sync** — when ML and Raiders both use Looty, everything syncs automatically (items, rolls, filters, tie re-rolls, award state)
-2. **Standalone** — Group Loot tab hooks into Blizzard's native system; Master Loot tab still tracks rolls and items locally for the ML
+1. **Addon sync** — when ML and Raiders both use Looty, everything syncs automatically (items, rolls, filters, award state)
+2. **Standalone** — Group Loot hooks into WoW's built-in system; Master Loot still tracks rolls and items locally
 
 You always get value, regardless of how many people are using Looty.
 
@@ -72,14 +68,10 @@ You always get value, regardless of how many people are using Looty.
 
 | Command | Description |
 |---------|-------------|
-| `/looty` | Toggle the Looty window |
-| `/looty lock` | Toggle window lock (prevents dragging/resizing) |
+| `/looty` | Open or close the Looty window |
+| `/looty lock` | Lock the window in place (prevents dragging/resizing) |
 | `/looty clear` | Clear group loot history |
-| `/looty test` | Inject mock Group Loot rolls (development) |
-| `/looty mtest` | Inject mock Master Loot session as ML (development) |
-| `/looty mtestremote` | Inject mock Master Loot session as Raider (development) |
-| `/looty debug` | Toggle debug logging |
-| `/lr` | Short alias for `/looty` |
+| `/lr` | Shortcut — same as `/looty` |
 
 ## Compatibility
 
