@@ -1046,6 +1046,24 @@ function MasterLoot:GetRaidRoster()
     return list
 end
 
+-- Finds the raid/party unitID for a player name (e.g. "raid5", "party2").
+-- Returns the unitID string, or nil if not found in the current group.
+-- This avoids requiring the ML to manually target the winner before trading.
+function MasterLoot:FindRaidUnit(playerName)
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local unit = "raid" .. i
+            if UnitName(unit) == playerName then return unit end
+        end
+    else
+        for i = 1, GetNumPartyMembers() do
+            local unit = "party" .. i
+            if UnitName(unit) == playerName then return unit end
+        end
+    end
+    return nil
+end
+
 -- Iterates GetMasterLootCandidate(1..40) and returns the index for playerName.
 function MasterLoot:FindCandidateIndex(playerName)
     for i = 1, 40 do
@@ -1110,25 +1128,26 @@ function MasterLoot:AwardToWinner(itemKey, playerName)
     local bag, slot = self:FindItemInBags(item.link)
     if not bag then return "ERR_ITEM_NOT_FOUND" end
 
-    -- The winner must be our current target. We'll keep trying via a retry
-    -- timer while the ML moves into trade range (common addon pattern).
-    if not UnitExists("target") or UnitName("target") ~= playerName then
-        return "ERR_TARGET_WINNER"
-    end
-    -- CheckInteractDistance type 2 = trade range
-    if not CheckInteractDistance("target", 2) then
+    -- Find the winner's raid/party unitID — no manual targeting required.
+    -- The ML can spam the button while walking toward the winner; once in
+    -- trade range InitiateTrade will succeed and TRADE_SHOW will fire.
+    local unit = self:FindRaidUnit(playerName)
+    if not unit then return "ERR_NOT_IN_GROUP" end
+    -- CheckInteractDistance type 2 = trade range (~10 yards)
+    if not CheckInteractDistance(unit, 2) then
         return "ERR_OUT_OF_RANGE"
     end
-    self:StartTradeSequence(playerName, bag, slot)
+    self:StartTradeSequence(playerName, unit, bag, slot)
     return nil
 end
 
 -- Initiates the trade and arms the state machine.
-function MasterLoot:StartTradeSequence(playerName, bag, slot)
+-- unit: raid/party unitID (e.g. "raid5") — no target required.
+function MasterLoot:StartTradeSequence(playerName, unit, bag, slot)
     self.tradeState = { winner = playerName, bag = bag, slot = slot }
-    InitiateTrade("target")
+    InitiateTrade(unit)
     if Looty.db and Looty.db.debug then
-        Looty:Print(string.format("[ML] InitiateTrade → %s (bag=%d slot=%d)", playerName, bag, slot))
+        Looty:Print(string.format("[ML] InitiateTrade(%s) → %s (bag=%d slot=%d)", unit, playerName, bag, slot))
     end
 end
 
@@ -1136,16 +1155,11 @@ end
 function MasterLoot:OnTradeShow()
     if not self.tradeState then return end
     local ts = self.tradeState
-    PickupContainerItem(ts.bag, ts.slot)
-    if CursorHasItem() then
-        DropItemOnUnit("target")
-        if Looty.db and Looty.db.debug then
-            Looty:Print("[ML] Item dropped into trade window for " .. ts.winner)
-        end
-    else
-        -- Item wasn't in that slot anymore (edge case)
-        self.tradeState = nil
-        Looty:Print("|cffff4040[Looty]|r Trade: item no longer in bags.")
+    -- UseContainerItem with the TradeFrame open moves the item directly into
+    -- the trade window — no cursor pickup or target required.
+    UseContainerItem(ts.bag, ts.slot)
+    if Looty.db and Looty.db.debug then
+        Looty:Print("[ML] UseContainerItem → trade window for " .. ts.winner)
     end
     -- ML accepts manually via Blizzard's trade UI — no AcceptTrade() call here.
 end

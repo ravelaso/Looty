@@ -179,7 +179,7 @@ local function RenderAwardRow(panel, layout, item, awardLabel, winnerName)
                     ERR_NO_ITEM        = "Item not found in session.",
                     ERR_NOT_CANDIDATE  = "Player is not a loot candidate.",
                     ERR_ITEM_NOT_FOUND = "Item not found in loot window or bags.",
-                    ERR_TARGET_WINNER  = "Target " .. (winnerName or "?") .. " first.",
+                    ERR_NOT_IN_GROUP   = (winnerName or "?") .. " is not in your group.",
                     ERR_OUT_OF_RANGE   = "Move closer to " .. (winnerName or "?") .. ".",
                 }
                 Looty:Print("|cffff6040[Award]|r " .. (msgs[err] or err))
