@@ -1090,11 +1090,17 @@ function MasterLoot:AwardToWinner(itemKey, playerName)
             local candidateIdx = self:FindCandidateIndex(playerName)
             if not candidateIdx then return "ERR_NOT_CANDIDATE" end
             GiveMasterLoot(lootSlot, candidateIdx)
-            -- LOOT_SLOT_CLEARED will fire → OnLootSlotCleared marks item done
+            -- Mark done immediately — we called GiveMasterLoot so we know it
+            -- went to the winner. LOOT_SLOT_CLEARED is NOT used for this because
+            -- it also fires when the ML takes an item into their own bags.
+            item.isDone = true
+            item.winner = playerName
+            self:SendMessage("ITEM_DONE" .. SEP .. item.itemKey)
             if Looty.db and Looty.db.debug then
-                Looty:Print(string.format("[ML] GiveMasterLoot slot=%d candidate=%d (%s)",
+                Looty:Print(string.format("[ML] GiveMasterLoot slot=%d candidate=%d (%s) → done",
                     lootSlot, candidateIdx, playerName))
             end
+            if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
             return nil
         end
         -- Item not in loot window (already looted) — fall through to bag search
@@ -1154,23 +1160,11 @@ function MasterLoot:OnTradeClosed()
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
 end
 
--- Called by Core on LOOT_SLOT_CLEARED.
--- Marks the corresponding item as done when the server confirms the award.
-function MasterLoot:OnLootSlotCleared(slot)
-    if not self.session then return end
-    -- Find the item whose slot index matches the cleared slot
-    for _, item in pairs(self.session.items) do
-        if item.slot == slot and not item:IsDone() then
-            item.isDone = true
-            self:SendMessage("ITEM_DONE" .. SEP .. item.itemKey)
-            if Looty.db and Looty.db.debug then
-                Looty:Print("[ML] LOOT_SLOT_CLEARED slot=" .. slot .. " → " .. item.name .. " marked done")
-            end
-            break
-        end
-    end
-    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
-end
+-- OnLootSlotCleared intentionally NOT implemented.
+-- LOOT_SLOT_CLEARED fires for both GiveMasterLoot AND the ML taking items into
+-- their own bags — there is no way to distinguish the two from the event alone.
+-- isDone is set explicitly in AwardToWinner right after GiveMasterLoot succeeds,
+-- and via ToggleDone when the ML manually marks an item as delivered.
 
 -- ============================================================
 -- ---- Test data injection ----
