@@ -182,6 +182,7 @@ function Session.new(role)
         items        = {},     -- { [itemKey] = Item }
         currentRoll  = nil,    -- itemKey of rolling item, or nil
         mlName       = nil,    -- name of the MasterLooter (Raider side only)
+        seenCorpses  = {},     -- { [guid] = true } — GUIDs already scanned this session
     }, Session)
 end
 
@@ -411,26 +412,54 @@ function MasterLoot:OnLootOpened()
     local numItems = GetNumLootItems()
     if numItems == 0 then return end
 
-    -- Rebuild ML's item list for this corpse
-    self.session.items = {}
+    -- Corpse identity: use the current target's GUID.
+    -- In Master Loot the ML right-clicks items one by one from the loot
+    -- window while the boss is still targeted, so UnitGUID("target") is
+    -- stable and reliable for the full duration of the loot interaction.
+    local corpseGUID = UnitGUID("target")
+
+    if corpseGUID then
+        if self.session.seenCorpses[corpseGUID] then
+            -- Same corpse opened again — items are already in the session.
+            -- Nothing to rebuild or rebroadcast.
+            if Looty.db and Looty.db.debug then
+                Looty:Print("[ML] OnLootOpened: corpse already seen (" .. corpseGUID .. ") — skipping rebuild.")
+            end
+            if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+            return
+        end
+        -- Mark this corpse as seen for the rest of the session.
+        self.session.seenCorpses[corpseGUID] = true
+    end
+
+    -- Scan loot slots and ADD new items only — never wipe the existing list.
+    -- This preserves rolls from previous corpses and is idempotent when
+    -- corpseGUID is nil (fallback: itemKey collision is the only protection).
+    local newItems = {}
     for i = 1, numItems do
         local texture, name, quantity, quality = GetLootSlotInfo(i)
         local link = GetLootSlotLink(i)
         if name and link and self:ShouldIncludeItem(quality) then
             local itemKey = ExtractItemKey(link, i)
-            self.session.items[itemKey] = Item.new(
-                itemKey, link, texture, quality, name, i)
-            self.session.items[itemKey].quantity = quantity or 1
+            if not self.session.items[itemKey] then
+                local item = Item.new(itemKey, link, texture, quality, name, i)
+                item.quantity = quantity or 1
+                self.session.items[itemKey] = item
+                newItems[itemKey] = item
+            end
         end
     end
 
-    -- Broadcast to Raiders
-    for _, item in pairs(self.session.items) do
+    -- Broadcast only the items that are actually new this open.
+    for _, item in pairs(newItems) do
         self:SendMessage(self:SerializeItem(item))
     end
 
     if Looty.db and Looty.db.debug then
-        Looty:Print("[ML] Loot opened: " .. self.session:GetActiveItemCount() .. " items broadcast.")
+        local newCount = 0
+        for _ in pairs(newItems) do newCount = newCount + 1 end
+        Looty:Print(string.format("[ML] Loot opened: %d new item(s) added (total active: %d). GUID=%s",
+            newCount, self.session:GetActiveItemCount(), tostring(corpseGUID)))
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
