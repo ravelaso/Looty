@@ -1076,8 +1076,9 @@ function MasterLoot:AwardToWinner(itemKey, playerName)
     if not item then return "ERR_NO_ITEM" end
 
     -- ---- Scenario 1: loot window is open ----
+    -- Only attempt direct award if the loot window is open AND the item is
+    -- still in a slot. If not found in the window, fall through to bag search.
     if LootFrame and LootFrame:IsShown() then
-        -- Find which loot slot holds this item
         local lootSlot
         for i = 1, GetNumLootItems() do
             if GetLootSlotLink(i) == item.link then
@@ -1085,24 +1086,21 @@ function MasterLoot:AwardToWinner(itemKey, playerName)
                 break
             end
         end
-        if not lootSlot then
-            -- Loot window open but this specific item is no longer in it
-            -- (already looted) — fall through to bag search
-            goto bags
+        if lootSlot then
+            local candidateIdx = self:FindCandidateIndex(playerName)
+            if not candidateIdx then return "ERR_NOT_CANDIDATE" end
+            GiveMasterLoot(lootSlot, candidateIdx)
+            -- LOOT_SLOT_CLEARED will fire → OnLootSlotCleared marks item done
+            if Looty.db and Looty.db.debug then
+                Looty:Print(string.format("[ML] GiveMasterLoot slot=%d candidate=%d (%s)",
+                    lootSlot, candidateIdx, playerName))
+            end
+            return nil
         end
-        local candidateIdx = self:FindCandidateIndex(playerName)
-        if not candidateIdx then return "ERR_NOT_CANDIDATE" end
-        GiveMasterLoot(lootSlot, candidateIdx)
-        -- LOOT_SLOT_CLEARED will fire → OnLootSlotCleared marks item done
-        if Looty.db and Looty.db.debug then
-            Looty:Print(string.format("[ML] GiveMasterLoot slot=%d candidate=%d (%s)",
-                lootSlot, candidateIdx, playerName))
-        end
-        return nil
+        -- Item not in loot window (already looted) — fall through to bag search
     end
 
     -- ---- Scenario 2: item already in ML bags ----
-    ::bags::
     local bag, slot = self:FindItemInBags(item.link)
     if not bag then return "ERR_ITEM_NOT_FOUND" end
 
