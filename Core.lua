@@ -53,6 +53,7 @@ function addon:PLAYER_LOGIN()
     self:RegisterEvent("LOOT_OPENED")
     self:RegisterEvent("LOOT_CLOSED")
     self:RegisterEvent("CHAT_MSG_SYSTEM")
+    self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 
     -- Addon messages (prefix-less in WoW 3.3.5 — RegisterAddonMessagePrefix
     -- was added in 4.1.0; in 3.3.5 CHAT_MSG_ADDON fires unconditionally).
@@ -175,6 +176,13 @@ function addon:GROUP_ROSTER_UPDATE()
     end
     LootyRefreshClassCache()
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+function addon:GET_ITEM_INFO_RECEIVED(event, itemID, success)
+    if not self.db or not self.db.masterLootEnabled then return end
+    if success then
+        LootyMasterLoot:OnItemInfoReceived(itemID)
+    end
 end
 
 -- ============================================================

@@ -7,20 +7,26 @@
 -- ============================================================
 -- ---- Protocol constants ----
 -- ============================================================
--- Field separator: ASCII \001 (SOH) — never appears in item links or names.
+-- Field separator: ASCII \001 (SOH) — never appears in GUIDs or item IDs.
 --
--- Item identity key: "{itemID}:{slot}"  e.g. "18815:3"
+-- Item identity key: "{GUID}:{itemID}"  e.g. "Creature-0-1234-5678:18815"
+--   GUID    — UnitGUID("target") of the corpse, unique per instance
 --   itemID  — from |Hitem:ITEMID:...|h
---   slot    — loot slot index, stable for the session
---   Two drops of the same item get different slots → unique keys.
+--   The GUID guarantees uniqueness across different corpses, even when
+--   the same item drops from two trash mobs of the same creature type.
+--   No slot is needed (slots shift when the ML loots items).
 --
--- ITEM\001itemKey\001link\001texture\001quality\001name        → one per item
--- ROLL_START\001itemKey                                        → roll opened
--- REROLL_START\001itemKey\001player1\001player2...             → tie re-roll (eligible only)
--- ROLL_END\001itemKey\001winnerName                            → roll closed
--- ITEM_DONE\001itemKey                                         → item finalized
--- FILTER\001qualityValue                                       → ML broadcasts filter change
--- CLEAR                                                        → session ended
+-- ITEM\001itemKey\001link                                            → one per item; Raiders extract quality/name from link
+-- ROLL_START\001itemKey                                            → roll opened
+-- REROLL_START\001itemKey\001player1\001player2...                 → tie re-roll (eligible only)
+-- ROLL_END\001itemKey\001winnerName                                → roll closed
+-- ITEM_DONE\001itemKey                                             → item finalized
+-- FILTER\001qualityValue                                           → ML broadcasts filter change
+-- CLEAR                                                            → session ended
+--
+-- Raiders extract quality from the link's color code and name from
+-- the brackets, so the item is fully displayable immediately.
+-- GetItemInfo() is used only for the icon texture (cosmetic fallback).
 --
 -- ClearDone is a LOCAL UI operation — no protocol message is sent.
 -- Each client manages its own Done/History view independently.
@@ -50,6 +56,7 @@ function Item.new(itemKey, link, texture, quality, name, slot)
         quality          = quality or 2,
         name             = name   or "Unknown",
         slot             = slot   or 0,
+        infoLoaded       = true,  -- ML: always true; Raider: set after GetItemInfo resolves
         quantity         = 1,
         rolls            = {},    -- { [playerName] = { value, time } }
         rerolls          = {},    -- { [playerName] = { value, time } } duplicate rolls
@@ -197,12 +204,21 @@ function Session:GetCurrentRollingItem()
     return nil
 end
 
-function Session:GetActiveItems()
+function Session:GetActiveItems(minQuality)
     local list = {}
     for _, item in pairs(self.items) do
-        if not item:IsDone() then table.insert(list, item) end
+        if not item:IsDone() then
+            -- Show items that: meet quality filter, are loading, or have roll activity.
+            if not minQuality or not item.infoLoaded
+                or item.quality >= minQuality
+                or item:RollCount() > 0
+                or item.wasRolled
+            then
+                table.insert(list, item)
+            end
+        end
     end
-    -- Sort by slot ascending (original loot order)
+    -- Sort by slot ascending (original loot order per corpse)
     table.sort(list, function(a, b) return a.slot < b.slot end)
     return list
 end
@@ -248,6 +264,12 @@ MasterLoot.rollDuration = 30
 
 -- Roll timer frame (ML side)
 MasterLoot.rollTimer = nil
+
+-- Pending item info lookups (Raider side): { [itemID] = { [itemKey] = true } }
+MasterLoot.pendingItemInfo = {}
+
+-- Retry timer for GetItemInfo polling fallback (if GET_ITEM_INFO_RECEIVED is unavailable)
+MasterLoot.pendingRetryTimer = nil
 
 -- Throttle queue for SendAddonMessage
 -- 0.1 s = ~10 msgs/s × ~120 bytes ≈ 1200 CPS, well within the ~3000 CPS
@@ -396,7 +418,6 @@ end
 -- ============================================================
 
 function MasterLoot:OnLootOpened()
-    -- Re-verify role every open (roster may not have been ready at login)
     self:ResolveRole()
     if not self:IsActive() then return end
 
@@ -411,26 +432,43 @@ function MasterLoot:OnLootOpened()
     local numItems = GetNumLootItems()
     if numItems == 0 then return end
 
-    -- Rebuild ML's item list for this corpse
-    self.session.items = {}
+    -- Compound key format: "{corpseGUID}:{itemID}"
+    -- The GUID guarantees uniqueness across different corpses of the same
+    -- creature type (trash mobs with same creature ID have different GUIDs).
+    -- When GUID is nil (rare), fall back to "0" — dedup is by itemID only.
+    local corpseGUID = UnitGUID("target") or "0"
+    local guidPrefix = corpseGUID .. ":"
+
+    -- Scan ALL loot slots without quality filtering — we store everything
+    -- and filter at display time. This ensures that changing the quality
+    -- threshold retroactively applies to all items ever scanned.
+    local newItems = {}
     for i = 1, numItems do
         local texture, name, quantity, quality = GetLootSlotInfo(i)
         local link = GetLootSlotLink(i)
-        if name and link and self:ShouldIncludeItem(quality) then
-            local itemKey = ExtractItemKey(link, i)
-            self.session.items[itemKey] = Item.new(
-                itemKey, link, texture, quality, name, i)
-            self.session.items[itemKey].quantity = quantity or 1
+        if name and link then
+            local itemID = string.match(link, "item:(%d+)")
+            local itemKey = guidPrefix .. (itemID or "0")
+            if not self.session.items[itemKey] then
+                local item = Item.new(itemKey, link, texture, quality, name, i)
+                item.quantity = quantity or 1
+                item.infoLoaded = true
+                self.session.items[itemKey] = item
+                newItems[itemKey] = item
+            end
         end
     end
 
-    -- Broadcast to Raiders
-    for _, item in pairs(self.session.items) do
+    -- Broadcast only the items that are actually new this open.
+    for _, item in pairs(newItems) do
         self:SendMessage(self:SerializeItem(item))
     end
 
     if Looty.db and Looty.db.debug then
-        Looty:Print("[ML] Loot opened: " .. self.session:GetActiveItemCount() .. " items broadcast.")
+        local newCount = 0
+        for _ in pairs(newItems) do newCount = newCount + 1 end
+        Looty:Print(string.format("[ML] Loot opened: %d new item(s) added (total active: %d). GUID=%s",
+            newCount, self.session:GetActiveItemCount(), tostring(corpseGUID)))
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
@@ -483,25 +521,48 @@ end
 -- ============================================================
 
 function MasterLoot:SerializeItem(item)
-    return "ITEM" .. SEP .. item.itemKey .. SEP
-        .. item.link    .. SEP
-        .. item.texture .. SEP
-        .. tostring(item.quality) .. SEP
-        .. item.name
+    return "ITEM" .. SEP .. item.itemKey .. SEP .. item.link
+end
+
+-- Parse quality from an item link color code.
+-- Returns 0-7 or nil if unknown.
+local function ParseItemQuality(link)
+    if not link or link == "" then return nil end
+    local color = string.match(link, "^|cff(%x%x%x%x%x%x)")
+    if not color then return nil end
+    color = color:lower()
+    local map = {
+        ["9d9d9d"] = 0,
+        ["ffffff"] = 1,
+        ["1eff00"] = 2,
+        ["0070dd"] = 3,
+        ["a335ee"] = 4,
+        ["ff8000"] = 5,
+        ["e6cc80"] = 6,
+        ["00ccff"] = 7,
+    }
+    return map[color]
+end
+
+-- Extract item name from a link's bracketed portion.
+-- "|cff...|Hitem:...|h[Spinal Crusher]|h|r" → "Spinal Crusher"
+local function ParseItemName(link)
+    return string.match(link or "", "%[(.+)%]")
 end
 
 function MasterLoot:DeserializeItem(message)
     if string.sub(message, 1, 5) ~= "ITEM" .. SEP then return nil end
+    -- Message format: ITEM\001{key}\001{link}
     local parts = {}
     for seg in string.gmatch(message, "[^" .. SEP .. "]+") do
         table.insert(parts, seg)
     end
-    -- [1]=ITEM [2]=itemKey [3]=link [4]=texture [5]=quality [6]=name
-    if #parts < 6 then return nil end
-
+    if #parts < 2 then return nil end
     local itemKey = parts[2]
-    local slot    = tonumber(string.match(itemKey, ":(%d+)$")) or 0
-    return Item.new(itemKey, parts[3], parts[4], tonumber(parts[5]) or 2, parts[6], slot)
+    local itemLink = parts[3] or ""
+    local quality  = ParseItemQuality(itemLink) or 2
+    local name     = ParseItemName(itemLink) or "Unknown"
+    return Item.new(itemKey, itemLink, "", quality, name, 0)
 end
 
 -- ============================================================
@@ -529,12 +590,32 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
                 Looty:Print("[ML] Raider: first ITEM received, ML is " .. sender)
             end
         end
+
         local item = self:DeserializeItem(message)
-        if item and self:ShouldIncludeItem(item.quality) then
-            self.session.items[item.itemKey] = item
-            if Looty.db and Looty.db.debug then
-                Looty:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
+        if not item then return end
+        if self.session.items[item.itemKey] then return end  -- already have it
+
+        -- Try to resolve the icon texture via GetItemInfo (cosmetic — QuestionMark fallback).
+        local itemID = item.link and tonumber(string.match(item.link, "item:(%d+)"))
+        local texture
+        if itemID then
+            texture = select(10, GetItemInfo(itemID))
+        end
+        item.texture = texture or ""
+
+        -- Queue texture resolution for later if uncached.
+        if item.texture == "" and itemID then
+            if not self.pendingItemInfo[itemID] then
+                self.pendingItemInfo[itemID] = {}
             end
+            self.pendingItemInfo[itemID][item.itemKey] = true
+            self:StartPendingRetry()
+        end
+
+        self.session.items[item.itemKey] = item
+
+        if Looty.db and Looty.db.debug then
+            Looty:Print("[ML] Raider: received item " .. item.name .. " key=" .. item.itemKey)
         end
 
     elseif string.sub(message, 1, 11) == "ROLL_START" .. SEP then
@@ -609,6 +690,85 @@ function MasterLoot:OnAddonMessage(prefix, message, distribution, sender)
     end
 
     if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+-- ============================================================
+-- ---- GET_ITEM_INFO_RECEIVED handler (Raider side) ----
+-- ============================================================
+
+-- Called when the game asynchronously resolves item info for an uncached item.
+-- Fast-path for texture only (cosmetic — the polling fallback also handles this).
+function MasterLoot:OnItemInfoReceived(itemID)
+    local pending = self.pendingItemInfo[itemID]
+    if not pending then return end
+
+    local texture = select(10, GetItemInfo(itemID))
+    if not texture then return end
+
+    for itemKey in pairs(pending) do
+        local item = self.session and self.session:GetItem(itemKey)
+        if item and item.texture == "" then
+            item.texture = texture
+        end
+    end
+    self.pendingItemInfo[itemID] = nil
+
+    if LootyUI and LootyUI.Refresh then LootyUI:Refresh() end
+end
+
+-- ============================================================
+-- ---- Pending item info retry (polling fallback) ----
+-- ============================================================
+
+-- Starts an OnUpdate timer that retries GetItemInfo for uncached items.
+-- Used as a fallback for clients where GET_ITEM_INFO_RECEIVED is unavailable.
+function MasterLoot:StartPendingRetry()
+    if self.pendingRetryTimer then return end
+    self.pendingRetryTimer = CreateFrame("Frame")
+    self.pendingRetryTimer.elapsed = 0
+    self.pendingRetryTimer:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = self.elapsed + elapsed
+        if self.elapsed < 1 then return end  -- retry once per second
+        self.elapsed = 0
+        MasterLoot:RetryPendingItemInfo()
+    end)
+    self.pendingRetryTimer:Show()
+end
+
+function MasterLoot:RetryPendingItemInfo()
+    if not next(self.pendingItemInfo) then
+        if self.pendingRetryTimer then
+            self.pendingRetryTimer:Hide()
+            self.pendingRetryTimer = nil
+        end
+        return
+    end
+
+    local resolved = {}
+    for itemID, pending in pairs(self.pendingItemInfo) do
+        local texture = select(10, GetItemInfo(itemID))
+        if texture then
+            for itemKey in pairs(pending) do
+                local item = self.session and self.session:GetItem(itemKey)
+                if item and item.texture == "" then
+                    item.texture = texture
+                end
+            end
+            resolved[itemID] = true
+        end
+    end
+    for itemID in pairs(resolved) do
+        self.pendingItemInfo[itemID] = nil
+    end
+
+    if next(resolved) and LootyUI and LootyUI.Refresh then
+        LootyUI:Refresh()
+    end
+
+    if not next(self.pendingItemInfo) and self.pendingRetryTimer then
+        self.pendingRetryTimer:Hide()
+        self.pendingRetryTimer = nil
+    end
 end
 
 -- ============================================================
@@ -851,12 +1011,13 @@ function MasterLoot:InjectTestRolls()
     LootyPreloadTestClass()
     self.session = Session.new("MasterLooter")
     local now    = GetTime()
+    local GUID   = "Creature-0-TEST-TEST-00001"
 
     local function makeItem(key, link, tex, qual, name, slot)
         return Item.new(key, link, tex, qual, name, slot)
     end
 
-    local i1 = makeItem("18815:1",
+    local i1 = makeItem(GUID .. ":18815",
         "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
         "Interface\\Icons\\INV_Mace_36", 4, "Spinal Crusher", 1)
     i1.rolling   = true
@@ -869,11 +1030,11 @@ function MasterLoot:InjectTestRolls()
     }
     i1.rerolls = { DPSKing = { value = 99, time = now } }
 
-    local i2 = makeItem("23243:2",
+    local i2 = makeItem(GUID .. ":23243",
         "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
         "Interface\\Icons\\INV_Staff_13", 4, "Staff of the Shadowflame", 2)
 
-    local i3 = makeItem("22734:3",
+    local i3 = makeItem(GUID .. ":22734",
         "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
         "Interface\\Icons\\INV_Jewelry_Ring_15", 3, "Ring of the Eternal", 3)
     i3.isDone  = true
@@ -885,7 +1046,7 @@ function MasterLoot:InjectTestRolls()
     }
 
     -- Item with a tie: IronWall and ShadowMaw both rolled 94
-    local i4 = makeItem("29329:4",
+    local i4 = makeItem(GUID .. ":29329",
         "|cffff8000|Hitem:29329:0:0:0:0:0:0:0:0|h[Ring of the Titans]|h|r",
         "Interface\\Icons\\INV_Jewelry_Ring_42", 5, "Ring of the Titans", 4)
     i4.rolls = {
@@ -896,8 +1057,8 @@ function MasterLoot:InjectTestRolls()
     }
     i4.wasRolled = true
 
-    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3, ["29329:4"] = i4 }
-    self.session.currentRoll = "18815:1"
+    self.session.items       = { [GUID .. ":18815"] = i1, [GUID .. ":23243"] = i2, [GUID .. ":22734"] = i3, [GUID .. ":29329"] = i4 }
+    self.session.currentRoll = GUID .. ":18815"
 
     Looty:Print("Master Loot test data injected — 2 rolling, 1 done, 1 tie. Role: MasterLooter")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
@@ -909,12 +1070,13 @@ function MasterLoot:InjectRemoteTest()
     self.session = Session.new("Raider")
     self.session.mlName = "TestMaster"
     local now = GetTime()
+    local GUID = "Creature-0-TEST-TEST-00001"
 
     local function makeItem(key, link, tex, qual, name, slot)
         return Item.new(key, link, tex, qual, name, slot)
     end
 
-    local i1 = makeItem("18815:1",
+    local i1 = makeItem(GUID .. ":18815",
         "|cffa335ee|Hitem:18815:0:0:0:0:0:0:0|h[Spinal Crusher]|h|r",
         "Interface\\Icons\\INV_Mace_36", 4, "Spinal Crusher", 1)
     i1.rolling   = true
@@ -927,11 +1089,11 @@ function MasterLoot:InjectRemoteTest()
     }
     i1.rerolls = { DPSKing = { value = 99, time = now } }
 
-    local i2 = makeItem("23243:2",
+    local i2 = makeItem(GUID .. ":23243",
         "|cffa335ee|Hitem:23243:0:0:0:0:0:0:0|h[Staff of the Shadowflame]|h|r",
         "Interface\\Icons\\INV_Staff_13", 4, "Staff of the Shadowflame", 2)
 
-    local i3 = makeItem("22734:3",
+    local i3 = makeItem(GUID .. ":22734",
         "|cff0070dd|Hitem:22734:0:0:0:0:0:0:0|h[Ring of the Eternal]|h|r",
         "Interface\\Icons\\INV_Jewelry_Ring_15", 3, "Ring of the Eternal", 3)
     i3.isDone  = true
@@ -942,7 +1104,7 @@ function MasterLoot:InjectRemoteTest()
         MageBob   = { value = 65, time = now },
     }
 
-    local i4 = makeItem("29329:4",
+    local i4 = makeItem(GUID .. ":29329",
         "|cffff8000|Hitem:29329:0:0:0:0:0:0:0:0|h[Ring of the Titans]|h|r",
         "Interface\\Icons\\INV_Jewelry_Ring_42", 5, "Ring of the Titans", 4)
     i4.rolls = {
@@ -953,8 +1115,8 @@ function MasterLoot:InjectRemoteTest()
     }
     i4.wasRolled = true
 
-    self.session.items       = { ["18815:1"] = i1, ["23243:2"] = i2, ["22734:3"] = i3, ["29329:4"] = i4 }
-    self.session.currentRoll = "18815:1"
+    self.session.items       = { [GUID .. ":18815"] = i1, [GUID .. ":23243"] = i2, [GUID .. ":22734"] = i3, [GUID .. ":29329"] = i4 }
+    self.session.currentRoll = GUID .. ":18815"
 
     Looty:Print("Remote test data injected — 2 rolling, 1 done, 1 tie. Role: Raider  ML: TestMaster")
     if LootyUI and LootyUI.SwitchTab then LootyUI:SwitchTab("master") end
