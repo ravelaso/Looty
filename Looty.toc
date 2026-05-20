@@ -6,7 +6,7 @@
 ## SavedVariables: Looty_SavedVars
 
 ## Load order:
-##   1. Libs       — LibStub, LibDeflate, LibSerialize (SoftRes dependencies)
+##   1. Libs       — LibStub, LibDeflate (SoftRes dependencies)
 ##   2. SoftRes    — decoder (references Looty inside functions only)
 ##   3. Locale     — strings and patterns (no Looty reference)
 ##   4. Domain     — GroupLoot, MasterLoot (reference Looty inside functions only)
@@ -18,7 +18,6 @@
 
 Libs\LibStub\LibStub.lua
 Libs\LibDeflate\LibDeflate.lua
-Libs\LibSerialize\LibSerialize.lua
 SoftRes.lua
 
 Locales\enUS.lua

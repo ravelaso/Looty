@@ -1,0 +1,33 @@
+{
+    "metadata": {
+        "id": "ez75vu",
+        "instance": null,
+        "instances": [
+            "toc25"
+        ],
+        "hidden": false,
+        "createdAt": 1779264989,
+        "updatedAt": 1779265091,
+        "raidStartsAt": null,
+        "lockedAt": null,
+        "discordUrl": "",
+        "note": ""
+    },
+    "softreserves": [
+        {
+            "rollBonus": 0,
+            "plusOnes": 0,
+            "name": "Buenclima",
+            "class": "druid",
+            "note": "",
+            "items": [
+                {
+                    "id": 46976,
+                    "note": "",
+                    "order": 0
+                }
+            ]
+        }
+    ],
+    "hardreserves": []
+}
