@@ -28,6 +28,7 @@ MasterLoot.lua
 UI\Primitives.lua
 UI\GroupLootUI.lua
 UI\MasterLootUI.lua
+UI\SoftResUI.lua
 UI\OptionsUI.lua
 UI\Frame.lua
 

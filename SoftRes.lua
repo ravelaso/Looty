@@ -270,3 +270,176 @@ function SoftRes.DebugPrint(importString)
     end
     Looty:Print("=== End ===")
 end
+
+-- ============================================================
+-- Data Container (analogous to LootyMasterLoot.session)
+-- ============================================================
+
+SoftRes.data     = nil  -- raw decoded table
+SoftRes.byItem   = nil  -- indexed by item ID
+SoftRes.byPlayer = nil  -- indexed by player name (lowercase)
+
+function SoftRes.Import(str)
+    local data, err = SoftRes.Decode(str)
+    if not data then
+        return nil, err
+    end
+
+    SoftRes.data     = data
+    SoftRes.byItem   = SoftRes.IndexByItem(data)
+    SoftRes.byPlayer = SoftRes.IndexByPlayer(data)
+
+    if LootyMasterLoot and LootyMasterLoot:IsML() then
+        SoftRes:BroadcastChunks(str)
+    end
+
+    return true
+end
+
+function SoftRes.Clear()
+    SoftRes.data     = nil
+    SoftRes.byItem   = nil
+    SoftRes.byPlayer = nil
+    SoftRes._srReset()
+
+    if LootyMasterLoot and LootyMasterLoot:IsML() then
+        SoftRes:_SendMsg("CLEAR")
+    end
+end
+
+function SoftRes.IsImported()
+    return SoftRes.data ~= nil
+end
+
+-- ============================================================
+-- Protocol — LOOTY_SR addon messages
+-- ============================================================
+
+local SR_PFX       = "LOOTY_SR"
+local SR_SEP       = "\001"
+local SR_CHUNK_MAX = 230
+local SR_TIMEOUT   = 5
+
+-- Reassembly state
+local srBuf    = {}    -- buffer for chunk reassembly
+local srTotal  = 0     -- total chunks expected
+local srGot    = 0     -- chunks received
+local srLast   = 0     -- GetTime() of last chunk
+local srFrom   = ""    -- sender name
+
+-- Throttle queue (same pattern as MasterLoot:SendMessage/FlushQueue)
+local srQueue = {}
+local srLastSend = 0
+local srSendTimer = nil
+
+function SoftRes:_SendMsg(msg)
+    tinsert(srQueue, msg)
+    self:_FlushSr()
+end
+
+function SoftRes:_FlushSr()
+    if #srQueue == 0 then return end
+    if GetTime() - srLastSend < 0.1 then
+        if not srSendTimer and CreateFrame then
+            srSendTimer = CreateFrame("Frame")
+            srSendTimer:SetScript("OnUpdate", function()
+                SoftRes:_FlushSr()
+            end)
+        end
+        if srSendTimer then srSendTimer:Show() end
+        return
+    end
+
+    local msg = tremove(srQueue, 1)
+    local channel = (GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    SendAddonMessage(SR_PFX, msg, channel)
+    srLastSend = GetTime()
+
+    if #srQueue == 0 and srSendTimer then
+        srSendTimer:Hide()
+    end
+end
+
+function SoftRes:BroadcastChunks(str)
+    if type(str) ~= "string" or str == "" then return end
+
+    local total = math.ceil(#str / SR_CHUNK_MAX)
+    local idx = 1
+    local pos = 1
+    while pos <= #str do
+        local seg = str:sub(pos, pos + SR_CHUNK_MAX - 1)
+        tinsert(srQueue, "CHUNK" .. SR_SEP .. idx .. SR_SEP .. total .. SR_SEP .. seg)
+        idx = idx + 1
+        pos = pos + SR_CHUNK_MAX
+    end
+    self:_FlushSr()
+    Looty:Print("Broadcasting SoftRes data to raid (" .. total .. " chunks)...")
+end
+
+-- Reset reassembly buffer
+function SoftRes._srReset()
+    srBuf = {}
+    srTotal = 0
+    srGot = 0
+    srLast = 0
+    srFrom = ""
+end
+
+function SoftRes._srReceive(sender, chunkIdx, total, segment)
+    chunkIdx = tonumber(chunkIdx)
+    total = tonumber(total)
+    if not chunkIdx or not total then return end
+
+    local now = GetTime()
+
+    -- New sequence or different sender → reset
+    if srTotal == 0 or srFrom ~= sender then
+        SoftRes._srReset()
+        srTotal = total
+        srFrom = sender
+    end
+
+    if total ~= srTotal then return end  -- ignore mismatched sequence
+
+    if not srBuf[chunkIdx] then
+        srBuf[chunkIdx] = segment
+        srGot = srGot + 1
+    end
+    srLast = now
+
+    if srGot >= srTotal then
+        local full = tconcat(srBuf)
+        SoftRes._srReset()
+        SoftRes.Import(full)
+        if LootyUI then LootyUI:Refresh() end
+    end
+end
+
+-- Event frame for CHAT_MSG_ADDON + timeout (WoW only)
+if CreateFrame then
+    local srFrame = CreateFrame("Frame")
+    srFrame:RegisterEvent("CHAT_MSG_ADDON")
+srFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
+    if prefix ~= SR_PFX then return end
+    if sender == UnitName("player") then return end
+
+    local cmd = strmatch(msg, "^([^" .. SR_SEP .. "]+)")
+    if cmd == "CHUNK" then
+        local idx, total, seg = strmatch(msg,
+            "^CHUNK" .. SR_SEP .. "([^" .. SR_SEP .. "]+)" ..
+            SR_SEP .. "([^" .. SR_SEP .. "]+)" .. SR_SEP .. "(.*)$")
+        if idx and total and seg then
+            SoftRes._srReceive(sender, idx, total, seg)
+        end
+    elseif cmd == "CLEAR" then
+        SoftRes.Clear()
+        if LootyUI then LootyUI:Refresh() end
+    end
+end)
+srFrame:SetScript("OnUpdate", function()
+    if srTotal == 0 then return end
+    if GetTime() - srLast > SR_TIMEOUT then
+        SoftRes._srReset()
+    end
+end)
+end  -- if CreateFrame

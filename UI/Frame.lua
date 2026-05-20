@@ -133,8 +133,13 @@ function UI:Create()
         function() return currentTab end)
     frame.tabs.master = mlTab
 
+    local srTab = LootyMakeTab(tabBar, "SoftRes", 70, "softres",
+        mlTab, "RIGHT", 0, function() UI:SwitchTab("softres") end,
+        function() return currentTab end)
+    frame.tabs.softres = srTab
+
     local optTab = LootyMakeTab(tabBar, "Options", 65, "options",
-        mlTab, "RIGHT", 0, function() UI:SwitchTab("options") end,
+        srTab, "RIGHT", 0, function() UI:SwitchTab("options") end,
         function() return currentTab end)
     frame.tabs.options = optTab
 
@@ -220,14 +225,22 @@ function UI:SwitchTab(tab)
     if tab == "grouplot" then
         activate(frame.tabs.grouplot)
         deactivate(frame.tabs.master)
+        deactivate(frame.tabs.softres)
         deactivate(frame.tabs.options)
     elseif tab == "master" then
         deactivate(frame.tabs.grouplot)
         activate(frame.tabs.master)
+        deactivate(frame.tabs.softres)
+        deactivate(frame.tabs.options)
+    elseif tab == "softres" then
+        deactivate(frame.tabs.grouplot)
+        deactivate(frame.tabs.master)
+        activate(frame.tabs.softres)
         deactivate(frame.tabs.options)
     else
         deactivate(frame.tabs.grouplot)
         deactivate(frame.tabs.master)
+        deactivate(frame.tabs.softres)
         activate(frame.tabs.options)
     end
 
@@ -263,6 +276,8 @@ function UI:Refresh()
         finalY = RefreshGroupLootTab(content, frame)
     elseif currentTab == "master" then
         finalY = RefreshMasterLootTab(content, frame)
+    elseif currentTab == "softres" then
+        finalY = RefreshSoftResTab(content, frame)
     else
         finalY = RefreshOptionsTab(content, frame)
     end
