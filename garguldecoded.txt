@@ -1,0 +1,35 @@
+FROM: eNpVkDFuwzAMRe/CWUMSxHalrblAh6JT4YEQGVSoLAUUlaGG716pHpJu+vrk5yNXWFiRUBHcCoHAAf9Mw72CgZCKYvIMLtUYH7qA+wTN/jTAbOArEHECd8VY2IAXRmV6VXDHabKn8WxfrIF6o//fw8EeDQgGelcULd3Zx8Tsv/fKXVMoPgt9SGxwDStl5f7aDJR8VeHCcv+DWkFyjJecalMHA7dYy1viXSRcetulcvIxLNiSfMTSTCCpbfNHcltVedkT+0nOo53GZ7vhsLTUbd76BVDoiWLefgFrvG1v
+
+{
+    "metadata": {
+        "id": "ez75vu",
+        "instance": null,
+        "instances": [
+            "toc25"
+        ],
+        "hidden": false,
+        "createdAt": 1779264989,
+        "updatedAt": 1779265091,
+        "raidStartsAt": null,
+        "lockedAt": null,
+        "discordUrl": "",
+        "note": ""
+    },
+    "softreserves": [
+        {
+            "rollBonus": 0,
+            "plusOnes": 0,
+            "name": "Buenclima",
+            "class": "druid",
+            "note": "",
+            "items": [
+                {
+                    "id": 46976,
+                    "note": "",
+                    "order": 0
+                }
+            ]
+        }
+    ],
+    "hardreserves": []
+}
