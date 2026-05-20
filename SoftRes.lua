@@ -141,8 +141,14 @@ local function jsonDecode(str)
     end
 
     function parseNumber()
-        local s, e = str:find("^-?[0-9]+%.?[0-9]*(e[%+%-]?[0-9]+)?", pos)
+        local s, e = str:find("^-?[0-9]+", pos)
         if not s then error("Expected number at " .. pos) end
+        -- optional fractional part
+        local de = str:find("^%.[0-9]*", e + 1)
+        if de then e = de end
+        -- optional exponent (Lua patterns: can't make groups optional with `?`)
+        local es, ee = str:find("^[eE][%+%-]?[0-9]+", e + 1)
+        if es then e = ee end
         local num = str:sub(s, e)
         pos = e + 1
         return tonumber(num)
