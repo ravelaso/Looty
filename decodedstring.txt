@@ -1,0 +1,1003 @@
+\
+if not r.__button then\
+    r.__button = CreateFrame(\"Button\",buttonName,aura_env.reg..."
+        ["do_custom"] = true
+      }
+      ["start"] = {
+        ["do_sound"] = false
+        ["sound"] = "Interface\\Addons\\MikScrollingBattleText\\Sounds\\LowMana.ogg"
+      }
+    }
+    ["regionType"] = "aurabar"
+    ["load"] = {
+      ["talent"] = {
+        ["multi"] = {
+        }
+      }
+      ["zoneIds"] = ""
+      ["use_never"] = false
+      ["size"] = {
+        ["multi"] = {
+        }
+      }
+      ["class"] = {
+        ["multi"] = {
+        }
+      }
+      ["spec"] = {
+        ["multi"] = {
+        }
+      }
+    }
+  }
+  [3] = {
+    ["useAdjustededMax"] = false
+    ["tocversion"] = 30402
+    ["semver"] = "1.1.1"
+    ["texture"] = "Smooth v2"
+    ["anchorPoint"] = "CENTER"
+    ["frameStrata"] = 1.0
+    ["sparkHidden"] = "NEVER"
+    ["width"] = 97.5
+    ["sparkWidth"] = 10.0
+    ["gradientOrientation"] = "HORIZONTAL"
+    ["icon"] = false
+    ["anchorFrameType"] = "SCREEN"
+    ["auto"] = true
+    ["sparkColor"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 1.0
+    }
+    ["authorOptions"] = {
+    }
+    ["height"] = 15.0
+    ["triggers"] = {
+      [1] = {
+        ["trigger"] = {
+          ["type"] = "custom"
+          ["dynamicDuration"] = true
+          ["use_alwaystrue"] = true
+          ["custom_hide"] = "custom"
+          ["unevent"] = "auto"
+          ["unit"] = "player"
+          ["custom_type"] = "event"
+          ["spellIds"] = {
+          }
+          ["names"] = {
+          }
+          ["events"] = "WA_SOFT_RES_NOTIFY WA_SOFT_RES_DISMISS"
+          ["subeventSuffix"] = "_CAST_START"
+          ["customDuration"] = ""
+          ["event"] = "Conditions"
+          ["use_unit"] = true
+          ["debuffType"] = "HELPFUL"
+          ["duration"] = "10"
+          ["custom"] = "function(e,...) \
+        return e == \"WA_SOFT_RES_NOTIFY\"\
+end"
+          ["subeventPrefix"] = "SPELL"
+        }
+        ["untrigger"] = {
+          ["custom"] = "function(e) return e == \"WA_SOFT_RES_DISMISS\" end"
+        }
+      }
+      ["activeTriggerMode"] = -10.0
+    }
+    ["sparkOffsetX"] = 0.0
+    ["url"] = "https://wago.io/ZG-E3TXwj/3"
+    ["internalVersion"] = 66.0
+    ["icon_color"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 1.0
+    }
+    ["xOffset"] = 0.0
+    ["wagoID"] = "ZG-E3TXwj"
+    ["animation"] = {
+      ["finish"] = {
+        ["preset"] = "fade"
+        ["easeStrength"] = 3.0
+        ["easeType"] = "none"
+        ["duration_type"] = "seconds"
+        ["type"] = "preset"
+      }
+      ["start"] = {
+        ["preset"] = "fade"
+        ["translateFunc"] = "function(p, startX, startY, deltaX, deltaY)\
+    return startX + (p * deltaX), 0\
+end"
+        ["alpha"] = 0.0
+        ["x"] = -40.0
+        ["y"] = 0.0
+        ["use_color"] = false
+        ["colorG"] = 1.0
+        ["colorR"] = 1.0
+        ["duration_type"] = "seconds"
+        ["use_translate"] = false
+        ["colorFunc"] = "    function(progress, r1, g1, b1, a1, r2, g2, b2, a2)\
+      return r1 + (progress * (r2 - r1)), g1 + (progress * (g2 - g1)), b1 + (progress * (b2 - b1)), a1 + (progress * (a2 - a1))\
+    end\
+  "
+        ["easeStrength"] = 3.0
+        ["use_alpha"] = true
+        ["type"] = "custom"
+        ["scaley"] = 1.0
+        ["alphaFunc"] = "function(progress, start, delta)\
+    return start + (progress * delta)\
+end\
+"
+        ["rotate"] = 0.0
+        ["colorA"] = 1.0
+        ["alphaType"] = "straight"
+        ["colorType"] = "straightColor"
+        ["scalex"] = 1.0
+        ["colorB"] = 1.0
+        ["duration"] = "0.4"
+        ["easeType"] = "easeIn"
+        ["translateType"] = "custom"
+      }
+      ["main"] = {
+        ["type"] = "none"
+        ["easeStrength"] = 3.0
+        ["duration_type"] = "seconds"
+        ["easeType"] = "none"
+      }
+    }
+    ["version"] = 3.0
+    ["enableGradient"] = false
+    ["orientation"] = "HORIZONTAL"
+    ["useAdjustededMin"] = false
+    ["alpha"] = 1.0
+    ["icon_side"] = "RIGHT"
+    ["zoom"] = 0.0
+    ["uid"] = "7FS5vhV02vc"
+    ["subRegions"] = {
+      [1] = {
+        ["type"] = "subbackground"
+      }
+      [2] = {
+        ["type"] = "subforeground"
+      }
+      [3] = {
+        ["border_anchor"] = "bar"
+        ["border_color"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 0.6700000166893
+        }
+        ["border_offset"] = 0.0
+        ["type"] = "subborder"
+        ["border_edge"] = "1 Pixel"
+        ["border_visible"] = true
+        ["border_size"] = 1.0
+      }
+      [4] = {
+        ["text_anchorPoint"] = "INNER_CENTER"
+        ["text_text_format_p_time_dynamic_threshold"] = 60.0
+        ["text_fixedWidth"] = 64.0
+        ["text_wordWrap"] = "WordWrap"
+        ["text_text_format_p_time_precision"] = 1.0
+        ["text_automaticWidth"] = "Auto"
+        ["anchorXOffset"] = 0.0
+        ["text_text_format_p_format"] = "timed"
+        ["text_shadowXOffset"] = 1.0
+        ["text_shadowColor"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 1.0
+        }
+        ["text_fontSize"] = 12.0
+        ["text_selfPoint"] = "AUTO"
+        ["text_text_format_c_format"] = "none"
+        ["rotateText"] = "NONE"
+        ["text_color"] = {
+          [1] = 1.0
+          [2] = 1.0
+          [3] = 1.0
+          [4] = 1.0
+        }
+        ["type"] = "subtext"
+        ["text_font"] = "Big Noodle Titling"
+        ["text_visible"] = true
+        ["text_text"] = "%{c}Dismiss"
+        ["text_text_format_p_time_format"] = 0.0
+        ["anchorYOffset"] = 0.0
+        ["text_justify"] = "CENTER"
+        ["text_fontType"] = "OUTLINE"
+        ["text_shadowYOffset"] = -1.0
+      }
+    }
+    ["sparkHeight"] = 30.0
+    ["inverse"] = true
+    ["customText"] = "function() return \"|T130832:20:20|t\" end"
+    ["sparkRotationMode"] = "AUTO"
+    ["information"] = {
+      ["forceEvents"] = true
+      ["ignoreOptionsEventErrors"] = true
+    }
+    ["selfPoint"] = "CENTER"
+    ["id"] = "SR Dismiss Button"
+    ["sparkOffsetY"] = 0.0
+    ["sparkTexture"] = "Interface\\CastingBar\\UI-CastingBar-Spark"
+    ["iconSource"] = -1.0
+    ["sparkBlendMode"] = "ADD"
+    ["spark"] = false
+    ["conditions"] = {
+    }
+    ["desaturate"] = false
+    ["barColor"] = {
+      [1] = 0.28235294117647
+      [2] = 0.28235294117647
+      [3] = 0.28235294117647
+      [4] = 0.60000002384186
+    }
+    ["source"] = "import"
+    ["backgroundColor"] = {
+      [1] = 0.066666666666667
+      [2] = 0.066666666666667
+      [3] = 0.066666666666667
+      [4] = 0.40000003576279
+    }
+    ["yOffset"] = 0.0
+    ["config"] = {
+    }
+    ["barColor2"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 0.0
+      [4] = 1.0
+    }
+    ["sparkRotation"] = 0.0
+    ["actions"] = {
+      ["finish"] = {
+      }
+      ["init"] = {
+        ["custom"] = "local buttonName = aura_env.id..\"button\"\
+local r = aura_env.region\
+r:Color(1,1,1,0.7)\
+if not r.__button then\
+    r.__button = CreateFrame(\"Button\",buttonName,aura_env.region)\
+end\
+\
+local b = r.__button..."
+        ["do_custom"] = true
+      }
+      ["start"] = {
+      }
+    }
+    ["regionType"] = "aurabar"
+    ["load"] = {
+      ["talent"] = {
+        ["multi"] = {
+        }
+      }
+      ["zoneIds"] = ""
+      ["use_never"] = false
+      ["size"] = {
+        ["multi"] = {
+        }
+      }
+      ["class"] = {
+        ["multi"] = {
+        }
+      }
+      ["spec"] = {
+        ["multi"] = {
+        }
+      }
+    }
+  }
+  [4] = {
+    ["outline"] = "OUTLINE"
+    ["texture"] = "Smooth v2"
+    ["anchorPoint"] = "CENTER"
+    ["backgroundColor"] = {
+      [1] = 0.066666666666667
+      [2] = 0.066666666666667
+      [3] = 0.066666666666667
+      [4] = 0.0
+    }
+    ["sparkRotationMode"] = "AUTO"
+    ["useAdjustededMin"] = false
+    ["id"] = "Softres.it Notifier TSU"
+    ["auto"] = true
+    ["displayText_format_icon_format"] = "none"
+    ["triggers"] = {
+      [1] = {
+        ["trigger"] = {
+          ["debuffType"] = "HELPFUL"
+          ["custom"] = "function(s,e,...)\
+    if WeakAuras.IsOptionsOpen() then \
+        return aura_env.onEvent.OPTIONS(s,...)\
+    end\
+    if ... ~= nil then\
+        return aura_env.onEvent[e](s,...)\
+    end\
+end\
+\
+\
+"
+          ["spellIds"] = {
+          }
+          ["type"] = "custom"
+          ["check"] = "event"
+          ["custom_type"] = "stateupdate"
+          ["events"] = "CHAT_MSG_LOOT LOOT_OPENED WA_SOFT_RES_NOTIFY WA_SOFT_RES_ANNOUNCE START_LOOT_ROLL WA_SOFT_RES_DISMISS WA_SOFT_RES_TEST WA_SOFT_RES_DISMISS_ITEM MODIFIER_STATE_CHANGED WA_SOFT_RES_SCAN_BAGS WA_SOFT_RES..."
+          ["subeventSuffix"] = "_CAST_START"
+          ["use_unit"] = true
+          ["customVariables"] = "{\
+    note = {type = \"string\",},\
+    header = {type = \"bool\"},\
+    inGroup = \"bool\",\
+    ctrlDown = \"bool\",\
+    plus = \"number\",\
+}"
+          ["event"] = "Health"
+          ["names"] = {
+          }
+          ["unevent"] = "auto"
+          ["unit"] = "player"
+          ["duration"] = "1"
+          ["subeventPrefix"] = "SPELL"
+        }
+        ["untrigger"] = {
+        }
+      }
+      ["activeTriggerMode"] = -10.0
+    }
+    ["justify"] = "LEFT"
+    ["animation"] = {
+      ["finish"] = {
+        ["preset"] = "fade"
+        ["easeStrength"] = 3.0
+        ["easeType"] = "none"
+        ["duration_type"] = "seconds"
+        ["type"] = "preset"
+      }
+      ["start"] = {
+        ["preset"] = "fade"
+        ["translateFunc"] = "function(p, startX, startY, deltaX, deltaY)\
+    return startX + (p * deltaX), 0\
+end"
+        ["alpha"] = 0.0
+        ["x"] = -40.0
+        ["y"] = 0.0
+        ["use_color"] = false
+        ["colorG"] = 1.0
+        ["colorR"] = 1.0
+        ["duration_type"] = "seconds"
+        ["use_translate"] = false
+        ["colorFunc"] = "    function(progress, r1, g1, b1, a1, r2, g2, b2, a2)\
+      return r1 + (progress * (r2 - r1)), g1 + (progress * (g2 - g1)), b1 + (progress * (b2 - b1)), a1 + (progress * (a2 - a1))\
+    end\
+  "
+        ["easeStrength"] = 3.0
+        ["use_alpha"] = true
+        ["type"] = "custom"
+        ["scaley"] = 1.0
+        ["alphaFunc"] = "function(progress, start, delta)\
+    return start + (progress * delta)\
+end\
+"
+        ["rotate"] = 0.0
+        ["colorA"] = 1.0
+        ["alphaType"] = "straight"
+        ["colorType"] = "straightColor"
+        ["scalex"] = 1.0
+        ["colorB"] = 1.0
+        ["duration"] = "0.4"
+        ["easeType"] = "easeIn"
+        ["translateType"] = "custom"
+      }
+      ["main"] = {
+        ["type"] = "none"
+        ["easeStrength"] = 3.0
+        ["duration_type"] = "seconds"
+        ["easeType"] = "none"
+      }
+    }
+    ["enableGradient"] = false
+    ["alpha"] = 1.0
+    ["sparkOffsetY"] = 0.0
+    ["zoom"] = 0.45
+    ["shadowXOffset"] = 1.0
+    ["sparkBlendMode"] = "ADD"
+    ["font"] = "Friz Quadrata TT"
+    ["iconSource"] = -1.0
+    ["fixedWidth"] = 200.0
+    ["desaturate"] = false
+    ["source"] = "import"
+    ["keepAspectRatio"] = false
+    ["subRegions"] = {
+      [1] = {
+        ["type"] = "subbackground"
+      }
+      [2] = {
+        ["type"] = "subforeground"
+      }
+      [3] = {
+        ["border_anchor"] = "bar"
+        ["border_color"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 0.6700000166893
+        }
+        ["border_offset"] = 0.0
+        ["type"] = "subborder"
+        ["border_edge"] = "1 Pixel"
+        ["border_visible"] = true
+        ["border_size"] = 1.0
+      }
+      [4] = {
+        ["text_anchorPoint"] = "INNER_LEFT"
+        ["text_text_format_name_format"] = "none"
+        ["type"] = "subtext"
+        ["text_fixedWidth"] = 64.0
+        ["text_wordWrap"] = "WordWrap"
+        ["text_text_format_p_time_precision"] = 1.0
+        ["text_visible"] = true
+        ["text_text_format_p_time_format"] = 0.0
+        ["text_automaticWidth"] = "Auto"
+        ["text_text_format_n_format"] = "none"
+        ["anchorXOffset"] = 0.0
+        ["text_text_format_p_time_dynamic_threshold"] = 60.0
+        ["text_text_format_p_format"] = "timed"
+        ["text_shadowXOffset"] = 1.0
+        ["text_text_format_n_time_precision"] = 1.0
+        ["text_shadowColor"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 1.0
+        }
+        ["text_text_format_n_abbreviate"] = false
+        ["text_fontType"] = "OUTLINE"
+        ["text_fontSize"] = 18.0
+        ["text_selfPoint"] = "AUTO"
+        ["text_text_format_iconStr_format"] = "none"
+        ["rotateText"] = "NONE"
+        ["text_color"] = {
+          [1] = 1.0
+          [2] = 1.0
+          [3] = 1.0
+          [4] = 1.0
+        }
+        ["text_text_format_n_color"] = true
+        ["text_font"] = "Big Noodle Titling"
+        ["anchorYOffset"] = 0.0
+        ["text_text"] = "%name"
+        ["text_justify"] = "CENTER"
+        ["text_text_format_n_big_number_format"] = "AbbreviateNumbers"
+        ["text_text_format_n_abbreviate_max"] = 8.0
+        ["text_text_format_n_realm_name"] = "never"
+        ["text_shadowYOffset"] = -1.0
+      }
+      [5] = {
+        ["text_anchorPoint"] = "RIGHT"
+        ["text_shadowYOffset"] = -1.0
+        ["text_wordWrap"] = "WordWrap"
+        ["text_automaticWidth"] = "Auto"
+        ["text_text_format_n_format"] = "none"
+        ["anchorXOffset"] = 0.0
+        ["text_shadowXOffset"] = 1.0
+        ["text_shadowColor"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 1.0
+        }
+        ["text_fontSize"] = 12.0
+        ["text_selfPoint"] = "LEFT"
+        ["type"] = "subtext"
+        ["rotateText"] = "NONE"
+        ["text_color"] = {
+          [1] = 1.0
+          [2] = 1.0
+          [3] = 1.0
+          [4] = 1.0
+        }
+        ["text_visible"] = true
+        ["text_font"] = "Friz Quadrata TT"
+        ["text_text_format_note_format"] = "none"
+        ["anchorYOffset"] = 0.0
+        ["text_text"] = "%note"
+        ["text_justify"] = "CENTER"
+        ["text_fontType"] = "None"
+        ["text_anchorXOffset"] = 18.0
+        ["text_fixedWidth"] = 64.0
+      }
+      [6] = {
+        ["text_anchorPoint"] = "LEFT"
+        ["text_shadowYOffset"] = -1.0
+        ["text_wordWrap"] = "WordWrap"
+        ["text_automaticWidth"] = "Auto"
+        ["text_text_format_n_format"] = "none"
+        ["anchorXOffset"] = 0.0
+        ["text_shadowXOffset"] = 1.0
+        ["text_shadowColor"] = {
+          [1] = 0.0
+          [2] = 0.0
+          [3] = 0.0
+          [4] = 1.0
+        }
+        ["type"] = "subtext"
+        ["text_fontSize"] = 12.0
+        ["text_selfPoint"] = "RIGHT"
+        ["text_visible"] = false
+        ["rotateText"] = "NONE"
+        ["text_color"] = {
+          [1] = 1.0
+          [2] = 1.0
+          [3] = 1.0
+          [4] = 1.0
+        }
+        ["text_fontType"] = "None"
+        ["text_font"] = "Friz Quadrata TT"
+        ["text_text_format_note_format"] = "none"
+        ["anchorYOffset"] = 0.0
+        ["text_text"] = "+%plus"
+        ["text_justify"] = "RIGHT"
+        ["text_text_format_plus_format"] = "none"
+        ["text_anchorXOffset"] = -4.0
+        ["text_fixedWidth"] = 64.0
+      }
+    }
+    ["displayText_format_p_format"] = "timed"
+    ["shadowYOffset"] = -1.0
+    ["useAdjustededMax"] = false
+    ["tocversion"] = 30402
+    ["semver"] = "1.1.1"
+    ["useTooltip"] = true
+    ["config"] = {
+      ["csv"] = "ItemId,Name,Class,Note,Plus\
+46976,Buenclima,Druid,,"
+      ["ann"] = {
+        ["RAID_WARNING"] = true
+        ["OFFICER"] = false
+        ["RAID"] = false
+        ["GUILD"] = false
+      }
+      ["commands"] = {
+        ["option4"] = "/run WeakAuras.ScanEvents(\"WA_SOFT_RES_SCAN_BAGS\",true)"
+      }
+      ["ibmi"] = {
+        ["right"] = 2.0
+        ["leftCtrl"] = 3.0
+        ["left"] = 1.0
+        ["rightCtrl"] = 4.0
+      }
+    }
+    ["sparkHidden"] = "NEVER"
+    ["displayText"] = "%iconStr%n"
+    ["sparkWidth"] = 10.0
+    ["cooldown"] = true
+    ["automaticWidth"] = "Auto"
+    ["cooldownTextDisabled"] = false
+    ["anchorFrameType"] = "SCREEN"
+    ["sparkColor"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 1.0
+    }
+    ["fontSize"] = 12.0
+    ["height"] = 25.0
+    ["smoothProgress"] = false
+    ["sparkOffsetX"] = 0.0
+    ["shadowColor"] = {
+      [1] = 0.0
+      [2] = 0.0
+      [3] = 0.0
+      [4] = 1.0
+    }
+    ["xOffset"] = 0.0
+    ["icon_color"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 1.0
+    }
+    ["wordWrap"] = "WordWrap"
+    ["width"] = 200.0
+    ["wagoID"] = "ZG-E3TXwj"
+    ["version"] = 3.0
+    ["url"] = "https://wago.io/ZG-E3TXwj/3"
+    ["orientation"] = "HORIZONTAL"
+    ["displayText_format_n_format"] = "none"
+    ["uid"] = "GnrJf2(s6wV"
+    ["icon_side"] = "LEFT"
+    ["internalVersion"] = 66.0
+    ["conditions"] = {
+      [1] = {
+        ["changes"] = {
+          [1] = {
+            ["property"] = "icon_visible"
+            ["value"] = false
+          }
+          [2] = {
+            ["property"] = "sub.4.text_fontSize"
+            ["value"] = 14.0
+          }
+          [3] = {
+            ["property"] = "width"
+            ["value"] = 190.0
+          }
+          [4] = {
+            ["property"] = "sub.3.border_color"
+            ["value"] = {
+              [1] = 1.0
+              [2] = 1.0
+              [3] = 1.0
+              [4] = 0.18000000715256
+            }
+          }
+        }
+        ["check"] = {
+          ["trigger"] = 1.0
+          ["variable"] = "header"
+          ["value"] = 0.0
+        }
+      }
+      [2] = {
+        ["changes"] = {
+          [1] = {
+            ["property"] = "sub.4.text_color"
+            ["value"] = {
+              [1] = 0.49411764705882
+              [2] = 0.49411764705882
+              [3] = 0.49411764705882
+              [4] = 1.0
+            }
+          }
+        }
+        ["check"] = {
+          ["trigger"] = -2.0
+          ["checks"] = {
+            [1] = {
+              ["trigger"] = 1.0
+              ["variable"] = "header"
+              ["value"] = 0.0
+            }
+            [2] = {
+              ["trigger"] = 1.0
+              ["variable"] = "inGroup"
+              ["value"] = 0.0
+            }
+          }
+          ["variable"] = "AND"
+        }
+      }
+      [3] = {
+        ["changes"] = {
+          [1] = {
+            ["property"] = "customcode"
+            ["value"] = {
+              ["custom"] = "local reg = aura_env.region\
+local r,g,b = GetItemQualityColor(aura_env.state.quality)\
+reg:SetBackgroundColor(r,g,b,1)\
+local textRegion = reg.subRegions[3].text\
+\
+if textRegion ~= nil then    \
+    local..."
+            }
+          }
+        }
+        ["check"] = {
+          ["trigger"] = 1.0
+          ["variable"] = "header"
+          ["value"] = 1.0
+        }
+      }
+      [4] = {
+        ["changes"] = {
+          [1] = {
+            ["property"] = "sub.6.text_visible"
+            ["value"] = true
+          }
+        }
+        ["check"] = {
+          ["trigger"] = 1.0
+          ["op"] = "~="
+          ["variable"] = "plus"
+          ["value"] = "0"
+        }
+      }
+    }
+    ["authorOptions"] = {
+      [1] = {
+        ["fontSize"] = "medium"
+        ["width"] = 2.0
+        ["type"] = "description"
+        ["text"] = "|cff00aaaaUsage|r\
+\
+On softres.it, click the \"export to CSV\" button and paste the file's contents into the box below."
+      }
+      [2] = {
+        ["key"] = "csv"
+        ["type"] = "input"
+        ["useLength"] = false
+        ["multiline"] = true
+        ["width"] = 2.0
+        ["default"] = ""
+        ["length"] = 10.0
+        ["useDesc"] = false
+        ["name"] = "Softres.it CSV"
+      }
+      [3] = {
+        ["key"] = "ibmi"
+        ["type"] = "group"
+        ["name"] = "Item Bar Mouse Interaction"
+        ["subOptions"] = {
+          [1] = {
+            ["key"] = "left"
+            ["width"] = 1.0
+            ["type"] = "select"
+            ["values"] = {
+              [1] = "Pick Up Item"
+              [2] = "Dismiss Item"
+              [3] = "Announce Item Reserve"
+              [4] = "Announce Item Roll"
+              [5] = "None"
+            }
+            ["useDesc"] = false
+            ["default"] = 1.0
+            ["name"] = "Left Click"
+          }
+          [2] = {
+            ["key"] = "right"
+            ["width"] = 1.0
+            ["type"] = "select"
+            ["values"] = {
+              [1] = "Pick Up Item"
+              [2] = "Dismiss Item"
+              [3] = "Announce Item Reserve"
+              [4] = "Announce Item Roll"
+              [5] = "None"
+            }
+            ["useDesc"] = false
+            ["default"] = 2.0
+            ["name"] = "Right Click"
+          }
+          [3] = {
+            ["key"] = "leftCtrl"
+            ["width"] = 1.0
+            ["type"] = "select"
+            ["values"] = {
+              [1] = "Pick Up Item"
+              [2] = "Dismiss Item"
+              [3] = "Announce Item Reserve"
+              [4] = "Announce Item Roll"
+              [5] = "None"
+            }
+            ["useDesc"] = false
+            ["default"] = 3.0
+            ["name"] = "Left + Ctrl"
+          }
+          [4] = {
+            ["key"] = "rightCtrl"
+            ["width"] = 1.0
+            ["type"] = "select"
+            ["values"] = {
+              [1] = "Pick Up Item"
+              [2] = "Dismiss Item"
+              [3] = "Announce Item Reserve"
+              [4] = "Announce Item Roll"
+              [5] = "None"
+            }
+            ["useDesc"] = false
+            ["default"] = 4.0
+            ["name"] = "Right + Ctrl"
+          }
+        }
+        ["collapse"] = false
+        ["hideReorder"] = true
+        ["nameSource"] = 0.0
+        ["useCollapse"] = true
+        ["width"] = 1.0
+        ["groupType"] = "simple"
+        ["size"] = 10.0
+        ["useDesc"] = false
+        ["limitType"] = "none"
+      }
+      [4] = {
+        ["name"] = "Announcement Options"
+        ["type"] = "group"
+        ["desc"] = "Accepts \"HIGHEST\" and \"RAID_WARNING\", \"RAID\", \"OFFICER\" etc. Allows multiple comma or space separated channels"
+        ["size"] = 10.0
+        ["subOptions"] = {
+          [1] = {
+            ["key"] = "RAID"
+            ["type"] = "toggle"
+            ["width"] = 0.5
+            ["useDesc"] = false
+            ["default"] = false
+            ["name"] = "Raid/Party"
+          }
+          [2] = {
+            ["name"] = "Raid Warning"
+            ["width"] = 0.5
+            ["type"] = "toggle"
+            ["desc"] = "Does nothing in 5 man groups"
+            ["useDesc"] = true
+            ["default"] = true
+            ["key"] = "RAID_WARNING"
+          }
+          [3] = {
+            ["name"] = "Guild"
+            ["width"] = 0.5
+            ["type"] = "toggle"
+            ["desc"] = ""
+            ["useDesc"] = false
+            ["default"] = false
+            ["key"] = "GUILD"
+          }
+          [4] = {
+            ["name"] = "Officer"
+            ["width"] = 0.5
+            ["type"] = "toggle"
+            ["desc"] = ""
+            ["useDesc"] = false
+            ["default"] = false
+            ["key"] = "OFFICER"
+          }
+        }
+        ["key"] = "ann"
+        ["hideReorder"] = true
+        ["nameSource"] = 0.0
+        ["useCollapse"] = true
+        ["width"] = 2.0
+        ["groupType"] = "simple"
+        ["collapse"] = false
+        ["useDesc"] = true
+        ["limitType"] = "none"
+      }
+      [5] = {
+        ["key"] = "commands"
+        ["type"] = "group"
+        ["name"] = "Commands"
+        ["subOptions"] = {
+          [1] = {
+            ["fontSize"] = "medium"
+            ["width"] = 2.0
+            ["type"] = "description"
+            ["text"] = "Below are commands that can be ran in your chat box or in a macro. There is also a corrseponding button in the weakaura group, by default set to not load."
+          }
+          [2] = {
+            ["key"] = "option4"
+            ["type"] = "input"
+            ["desc"] = "Scans your bags for soft reserves. Can not differentiate temporarily tradeable items"
+            ["useLength"] = false
+            ["multiline"] = false
+            ["width"] = 2.0
+            ["default"] = "/run WeakAuras.ScanEvents(\"WA_SOFT_RES_SCAN_BAGS\",true)"
+            ["length"] = 10.0
+            ["useDesc"] = true
+            ["name"] = "Scan Bags Command"
+          }
+        }
+        ["collapse"] = false
+        ["hideReorder"] = true
+        ["nameSource"] = 0.0
+        ["useCollapse"] = true
+        ["width"] = 1.0
+        ["groupType"] = "simple"
+        ["size"] = 10.0
+        ["useDesc"] = false
+        ["limitType"] = "none"
+      }
+    }
+    ["displayText_format_iconStr_format"] = "none"
+    ["spark"] = false
+    ["cooldownEdge"] = false
+    ["icon"] = true
+    ["information"] = {
+      ["forceEvents"] = true
+      ["ignoreOptionsEventErrors"] = true
+    }
+    ["selfPoint"] = "BOTTOM"
+    ["customTextUpdate"] = "event"
+    ["displayText_format_p_time_precision"] = 1.0
+    ["sparkTexture"] = "Interface\\CastingBar\\UI-CastingBar-Spark"
+    ["displayText_format_p_time_dynamic"] = false
+    ["frameStrata"] = 1.0
+    ["gradientOrientation"] = "HORIZONTAL"
+    ["actions"] = {
+      ["finish"] = {
+        ["do_custom"] = true
+        ["custom"] = "if aura_env.state.header then \
+    local reg = aura_env.region\
+    reg:SetScript(\"OnEnter\",nil)\
+    reg:SetScript(\"OnLeave\",nil)\
+    reg:SetScript(\"OnMouseDown\",nil)\
+end\
+\
+\
+\
+"
+        ["stop_sound"] = false
+      }
+      ["init"] = {
+        ["custom"] = "local lootCapture = format(LOOT_ITEM_SELF or \"You receive loot: %s.\", \".*Hitem:(%d+):\")\
+local heroicItemMap = {}\
+for normal, heroic in pairs({\
+    -- ToC 10 Alliance\
+    [47617] = 47921, -- Icehowl Ci..."
+        ["do_custom"] = true
+      }
+      ["start"] = {
+        ["glow_type"] = "buttonOverlay"
+        ["do_custom"] = true
+        ["glow_action"] = "show"
+        ["glow_frame_type"] = "FRAMESELECTOR"
+        ["glow_frame"] = "LootButton1"
+        ["sound"] = "Interface\\AddOns\\WeakAuras\\Media\\Sounds\\BikeHorn.ogg"
+        ["do_sound"] = false
+        ["custom"] = "if aura_env.state.header then \
+    local region = aura_env.region\
+    local itemId = aura_env.state.itemId\
+    local config = aura_env.config.ibmi\
+    local clickFunc = aura_env.itemBarClickFunctions\
+..."
+        ["do_glow"] = false
+      }
+    }
+    ["customText"] = "function() return \"|T1019848:0|t\" end\
+    \
+    "
+    ["inverse"] = true
+    ["sparkHeight"] = 30.0
+    ["cooldownSwipe"] = true
+    ["yOffset"] = 0.0
+    ["barColor"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 0.0
+    }
+    ["barColor2"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 0.0
+      [4] = 1.0
+    }
+    ["sparkRotation"] = 0.0
+    ["color"] = {
+      [1] = 1.0
+      [2] = 1.0
+      [3] = 1.0
+      [4] = 1.0
+    }
+    ["regionType"] = "aurabar"
+    ["load"] = {
+      ["talent"] = {
+        ["multi"] = {
+        }
+      }
+      ["zoneIds"] = ""
+      ["use_never"] = false
+      ["size"] = {
+        ["multi"] = {
+        }
+      }
+      ["class"] = {
+        ["multi"] = {
+        }
+      }
+      ["spec"] = {
+        ["multi"] = {
+        }
+      }
+    }
+  }
+}
+["v"] = 1421.0
+["m"] = "d"
+["wagoID"] = "ZG-E3TXwj"
+["s"] = "5.5.6"
+========================================

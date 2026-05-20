@@ -6,13 +6,20 @@
 ## SavedVariables: Looty_SavedVars
 
 ## Load order:
-##   1. Locale     — strings and patterns (no Looty reference)
-##   2. Domain     — GroupLoot, MasterLoot (reference Looty inside functions only)
-##   3. UI         — Primitives, tab renderers, Frame (same)
-##   4. Parser     — chat message routing (same)
-##   5. Core       — LAST: creates LootyCore frame, sets global Looty,
+##   1. Libs       — LibStub, LibDeflate, LibSerialize (SoftRes dependencies)
+##   2. SoftRes    — decoder (references Looty inside functions only)
+##   3. Locale     — strings and patterns (no Looty reference)
+##   4. Domain     — GroupLoot, MasterLoot (reference Looty inside functions only)
+##   5. UI         — Primitives, tab renderers, Frame (same)
+##   6. Parser     — chat message routing (same)
+##   7. Core       — LAST: creates LootyCore frame, sets global Looty,
 ##                   registers events. By this point all modules are defined.
 ##                   No module references Looty at file load time.
+
+Libs\LibStub\LibStub.lua
+Libs\LibDeflate\LibDeflate.lua
+Libs\LibSerialize\LibSerialize.lua
+SoftRes.lua
 
 Locales\enUS.lua
 
