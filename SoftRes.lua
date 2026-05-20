@@ -321,11 +321,12 @@ local SR_CHUNK_MAX = 230
 local SR_TIMEOUT   = 5
 
 -- Reassembly state
-local srBuf    = {}    -- buffer for chunk reassembly
-local srTotal  = 0     -- total chunks expected
-local srGot    = 0     -- chunks received
-local srLast   = 0     -- GetTime() of last chunk
-local srFrom   = ""    -- sender name
+local srBuf    = {}
+local srTotal  = 0
+local srGot    = 0
+local srLast   = 0
+local srFrom   = ""
+local srTimerFrame = nil
 
 -- Throttle queue (same pattern as MasterLoot:SendMessage/FlushQueue)
 local srQueue = {}
@@ -340,13 +341,13 @@ end
 function SoftRes:_FlushSr()
     if #srQueue == 0 then return end
     if GetTime() - srLastSend < 0.1 then
-        if not srSendTimer and CreateFrame then
+        if not srSendTimer then
             srSendTimer = CreateFrame("Frame")
             srSendTimer:SetScript("OnUpdate", function()
                 SoftRes:_FlushSr()
             end)
         end
-        if srSendTimer then srSendTimer:Show() end
+        srSendTimer:Show()
         return
     end
 
@@ -383,6 +384,27 @@ function SoftRes._srReset()
     srGot = 0
     srLast = 0
     srFrom = ""
+    SoftRes._srStopTimer()
+end
+
+function SoftRes._srStartTimer()
+    if srTimerFrame then return end
+    srTimerFrame = CreateFrame("Frame")
+    srTimerFrame:SetScript("OnUpdate", function()
+        if srTotal == 0 then srTimerFrame:Hide(); return end
+        if GetTime() - srLast > SR_TIMEOUT then
+            SoftRes._srReset()
+            srTimerFrame:Hide()
+        end
+    end)
+    srTimerFrame:Show()
+end
+
+function SoftRes._srStopTimer()
+    if srTimerFrame then
+        srTimerFrame:Hide()
+        srTimerFrame = nil
+    end
 end
 
 function SoftRes._srReceive(sender, chunkIdx, total, segment)
@@ -392,14 +414,14 @@ function SoftRes._srReceive(sender, chunkIdx, total, segment)
 
     local now = GetTime()
 
-    -- New sequence or different sender → reset
     if srTotal == 0 or srFrom ~= sender then
         SoftRes._srReset()
         srTotal = total
         srFrom = sender
+        SoftRes._srStartTimer()
     end
 
-    if total ~= srTotal then return end  -- ignore mismatched sequence
+    if total ~= srTotal then return end
 
     if not srBuf[chunkIdx] then
         srBuf[chunkIdx] = segment
@@ -408,6 +430,7 @@ function SoftRes._srReceive(sender, chunkIdx, total, segment)
     srLast = now
 
     if srGot >= srTotal then
+        SoftRes._srStopTimer()
         local full = tconcat(srBuf)
         SoftRes._srReset()
         SoftRes.Import(full)
@@ -415,11 +438,8 @@ function SoftRes._srReceive(sender, chunkIdx, total, segment)
     end
 end
 
--- Event frame for CHAT_MSG_ADDON + timeout (WoW only)
-if CreateFrame then
-    local srFrame = CreateFrame("Frame")
-    srFrame:RegisterEvent("CHAT_MSG_ADDON")
-srFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
+-- Called from Core.lua:CHAT_MSG_ADDON (no event frame in SoftRes)
+function SoftRes:OnAddonMessage(prefix, msg, distribution, sender)
     if prefix ~= SR_PFX then return end
     if sender == UnitName("player") then return end
 
@@ -435,11 +455,4 @@ srFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
         SoftRes.Clear()
         if LootyUI then LootyUI:Refresh() end
     end
-end)
-srFrame:SetScript("OnUpdate", function()
-    if srTotal == 0 then return end
-    if GetTime() - srLast > SR_TIMEOUT then
-        SoftRes._srReset()
-    end
-end)
-end  -- if CreateFrame
+end
